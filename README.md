@@ -28,10 +28,9 @@ Modelled on PureRef:
 | Pinch on an item | Scale the selection (and rotate, if rotation is on) |
 | Drag / pinch on empty canvas | Pan / zoom |
 | Double-tap an item | Zoom to it; again to go back. Edits notes. |
-| Long-press the add button | Import a folder |
-| Long-press the draw button | Pen colour and width |
+| Long-press a toolbar button | Show what it does |
 
-Everything else is in the ⋮ menu.
+Everything else, including folder import and pen settings, is in the More (⋮) menu; More › Help repeats these gestures in the app. Button labels can be hidden under More › View.
 
 ## Development
 

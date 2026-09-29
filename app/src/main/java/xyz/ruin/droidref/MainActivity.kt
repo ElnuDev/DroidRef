@@ -17,6 +17,7 @@ import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
 import android.widget.PopupMenu
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.SystemBarStyle
@@ -27,7 +28,9 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.graphics.Insets
+import androidx.appcompat.widget.TooltipCompat
 import androidx.core.view.ViewCompat
+import androidx.core.view.children
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updateLayoutParams
 import androidx.databinding.DataBindingUtil
@@ -106,6 +109,8 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
         stickerViewModel = ViewModelProvider(this)[StickerViewModel::class.java]
         stickerViewModel.stickerOperationListener = RedrawListener(binding.stickerView)
         stickerViewModel.boardListener = this
+        stickerViewModel.emptyHint =
+            "Tap Add to bring in images\nLong-press any button to see what it does\nMore › Help lists the gestures"
         binding.viewModel = stickerViewModel
         binding.lifecycleOwner = this
         binding.executePendingBindings()
@@ -116,7 +121,7 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
         setupIcons()
         setupButtons()
         setupSettings()
-        updateFrameInsets()
+        applyButtonLabels(prefs.getBoolean(PREF_LABELS, true))
 
         if (!stickerViewModel.sessionStarted) {
             // Fresh process: nothing references old blobs, so start clean and
@@ -520,31 +525,54 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
         binding.buttonMenu.setOnClickListener { showMenu() }
 
         binding.buttonAdd.setOnClickListener { pickImages.launch("image/*") }
-        binding.buttonAdd.setOnLongClickListener { pickFolder.launch(null); true }
         binding.buttonPaste.setOnClickListener { paste() }
         binding.buttonNote.setOnClickListener { addNote() }
         binding.buttonDraw.setOnClickListener {
             vm.tool.value = if (vm.tool.value == Tool.DRAW) Tool.SELECT else Tool.DRAW
+            if (vm.tool.value == Tool.DRAW) {
+                hintOnce(
+                    "draw",
+                    "Draw: drag with one finger to draw; use two fingers to move around. " +
+                            "Pen color and width are under More › View."
+                )
+            }
         }
-        binding.buttonDraw.setOnLongClickListener { editPen(); true }
         binding.buttonPicker.setOnClickListener {
             vm.tool.value = if (vm.tool.value == Tool.PICK_COLOR) Tool.SELECT else Tool.PICK_COLOR
+            if (vm.tool.value == Tool.PICK_COLOR) {
+                hintOnce("picker", "Color picker: touch the board and drag; lift your finger to pick.")
+            }
         }
         binding.buttonArrange.setOnClickListener { vm.arrange(Arrangement.OPTIMAL) }
         binding.buttonReset.setOnClickListener { vm.fitAll() }
-        binding.buttonReset.setOnLongClickListener { vm.resetView(); true }
         binding.buttonDuplicate.setOnClickListener { withSelection { vm.duplicateSelection() } }
         binding.buttonDelete.setOnClickListener { withSelection { vm.deleteSelection() } }
         binding.buttonResetZoom.setOnClickListener { withSelection { vm.resetTransform() } }
         binding.buttonResetCrop.setOnClickListener { withSelection { vm.resetCrop() } }
-        binding.buttonRotate.setOnLongClickListener {
-            vm.resetCurrentStickerRotation()
-            true
-        }
         binding.buttonHideShowUI.setOnClickListener { setUIVisibility(!binding.buttonHideShowUI.isSelected) }
-        binding.buttonLock.setOnClickListener { vm.isLocked.value = vm.isLocked.value != true }
-        binding.buttonCrop.setOnClickListener { vm.isCropActive.value = vm.isCropActive.value != true }
-        binding.buttonRotate.setOnClickListener { vm.rotationEnabled.value = vm.rotationEnabled.value != true }
+        binding.buttonLock.setOnClickListener {
+            vm.isLocked.value = vm.isLocked.value != true
+            if (vm.isLocked.value == true) {
+                hintOnce("lock", "Board locked: items can't be selected or moved, only the view. Tap Lock again to unlock.")
+            }
+        }
+        binding.buttonCrop.setOnClickListener {
+            vm.isCropActive.value = vm.isCropActive.value != true
+            if (vm.isCropActive.value == true) {
+                hintOnce("crop", "Crop: select an image, then drag its corner handles. Uncrop restores it.")
+            }
+        }
+        binding.buttonRotate.setOnClickListener {
+            vm.rotationEnabled.value = vm.rotationEnabled.value != true
+            if (vm.rotationEnabled.value == true) {
+                hintOnce("rotate", "Rotation on: twist with two fingers, or drag the corner handle, to rotate.")
+            }
+        }
+
+        // Long-pressing any toolbar button explains it.
+        for (bar in listOf(binding.toolbarTop, binding.toolbarBottom, binding.toolbarHideShowUI)) {
+            toolbarButtons(bar).forEach { TooltipCompat.setTooltipText(it, it.contentDescription) }
+        }
 
         vm.revision.observe(this) { scheduleAutosave() }
 
@@ -610,6 +638,7 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
         menu.findItem(R.id.action_auto_arrange).isChecked = vm.autoArrange.value == true
         menu.findItem(R.id.action_canvas_grayscale).isChecked = vm.canvasGrayscale.value == true
         menu.findItem(R.id.action_snap).isChecked = vm.snapToGrid.value == true
+        menu.findItem(R.id.action_labels).isChecked = prefs.getBoolean(PREF_LABELS, true)
         menu.findItem(
             when (vm.gridMode.value) {
                 GridMode.LINES -> R.id.action_grid_lines
@@ -697,6 +726,11 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
                 vm.backgroundColor.value = it or 0xFF000000.toInt()
             }
             R.id.action_pen -> editPen()
+            R.id.action_labels -> {
+                prefs.edit().putBoolean(PREF_LABELS, !item.isChecked).apply()
+                applyButtonLabels(!item.isChecked)
+            }
+            R.id.action_help -> showHelp()
 
             R.id.action_export_selected -> withSelection { exportImages(vm.selected()) }
             R.id.action_export_all -> exportImages(ArrayList(items))
@@ -763,6 +797,63 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
             .show()
     }
 
+    private fun toolbarButtons(bar: ViewGroup): List<TextView> =
+        (bar.getChildAt(0) as ViewGroup).children.filterIsInstance<TextView>().toList()
+
+    /** Shows or hides the text under the toolbar icons. */
+    private fun applyButtonLabels(show: Boolean) {
+        val size = resources.getDimensionPixelSize(
+            if (show) R.dimen.toolbar_button_labelled else R.dimen.toolbar_button_compact
+        )
+        for (bar in listOf(binding.toolbarTop, binding.toolbarBottom, binding.toolbarHideShowUI)) {
+            for (button in toolbarButtons(bar)) {
+                if (button.tag == null) button.tag = button.text
+                button.text = if (show) button.tag as CharSequence else null
+                button.minWidth = resources.getDimensionPixelSize(
+                    if (show) R.dimen.toolbar_button_width else R.dimen.toolbar_button_compact
+                )
+                button.updateLayoutParams { height = size }
+            }
+        }
+        updateFrameInsets()
+    }
+
+    /** Explains a mode the first time it's used. */
+    private fun hintOnce(key: String, message: String) {
+        val pref = "hint_$key"
+        if (prefs.getBoolean(pref, false)) return
+        prefs.edit().putBoolean(pref, true).apply()
+        toast(message)
+    }
+
+    private fun showHelp() {
+        AlertDialog.Builder(this)
+            .setTitle("Help")
+            .setMessage(
+                """
+                Selecting
+                • Tap an item to select it; tap empty space to deselect.
+                • Long-press an item to add it to (or remove it from) the selection.
+                • Long-press empty space, then drag, to select everything in a box.
+
+                Moving
+                • Drag to move the selection; pinch on it to resize.
+                • Drag or pinch empty space to move around the board.
+                • Double-tap an item to zoom to it; again to zoom back. Double-tap a note to edit it.
+
+                Toolbar
+                • Long-press any button to see what it does.
+                • Add picks several images at once; they are arranged automatically.
+                • Arrange, Delete, Duplicate, Uncrop and Reset size act on the selection.
+                • Draw, Color, Crop, Rotate and Lock are switches: blue means on.
+
+                More (⋮) has everything else: align, normalize, grid, export, slideshow and settings.
+                """.trimIndent()
+            )
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
+    }
+
     private var systemBars = Insets.NONE
 
     /** Keeps the toolbars clear of the status bar, navigation bar and cutouts. */
@@ -790,7 +881,10 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
     }
 
     private fun updateFrameInsets(hidden: Boolean = binding.buttonHideShowUI.isSelected) {
-        val toolbar = if (hidden) 0f else 48 * resources.displayMetrics.density
+        val labels = prefs.getBoolean(PREF_LABELS, true)
+        val toolbar = if (hidden) 0f else resources.getDimension(
+            if (labels) R.dimen.toolbar_button_labelled else R.dimen.toolbar_button_compact
+        )
         stickerViewModel.frameInsetTop = systemBars.top + toolbar
         stickerViewModel.frameInsetBottom = systemBars.bottom + toolbar
     }
@@ -803,7 +897,10 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
         binding.buttonMenu.visibility = visibility
         val icon = if (hidden) R.drawable.ic_baseline_visibility_off_24 else R.drawable.ic_baseline_visibility_24
         binding.buttonHideShowUI.isSelected = hidden
-        binding.buttonHideShowUI.setImageResource(icon)
+        binding.buttonHideShowUI.setCompoundDrawablesWithIntrinsicBounds(0, icon, 0, 0)
+        binding.buttonHideShowUI.tag = if (hidden) "Show" else "Hide"
+        if (binding.buttonHideShowUI.text.isNotEmpty()) binding.buttonHideShowUI.text = binding.buttonHideShowUI.tag as String
+        if (hidden) hintOnce("hide", "Tap Show to bring the toolbars back.")
     }
 
 
@@ -868,6 +965,7 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
         private const val PREF_PEN_COLOR = "penColor"
         private const val PREF_PEN_WIDTH = "penWidth"
         private const val PREF_CURRENT_FILE = "currentFile"
+        private const val PREF_LABELS = "buttonLabels"
         private const val AUTOSAVE_FILE = "autosave.ref"
         private const val AUTOSAVE_DELAY_MS = 5_000L
 

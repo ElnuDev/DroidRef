@@ -1,6 +1,6 @@
 <resources>
   <string name="app_name">DroidRef</string>
-  <string name="menu">Menu</string>
+  <string name="menu">More actions</string>
   <string name="hide_ui">Hide interface</string>
   <string name="new_board">New board</string>
   <string name="open">Open board</string>
@@ -9,17 +9,17 @@
   <string name="undo">Undo</string>
   <string name="redo">Redo</string>
   <string name="add_images">Add images</string>
-  <string name="paste">Paste</string>
-  <string name="add_note">Add note</string>
-  <string name="draw">Draw</string>
-  <string name="color_picker">Color picker</string>
-  <string name="arrange_optimal">Arrange optimally</string>
-  <string name="fit_all">Fit all in view</string>
-  <string name="duplicate">Duplicate</string>
-  <string name="delete">Delete</string>
-  <string name="lock_canvas">Lock canvas</string>
-  <string name="crop">Crop</string>
-  <string name="rotate">Rotate</string>
-  <string name="reset_crop">Reset crop</string>
-  <string name="reset_transform">Reset transform</string>
+  <string name="paste">Paste image, link or text</string>
+  <string name="add_note">Add a text note</string>
+  <string name="draw">Draw with a pen</string>
+  <string name="color_picker">Pick a color from the board</string>
+  <string name="arrange_optimal">Arrange selection (or all) to fit</string>
+  <string name="fit_all">Fit everything on screen</string>
+  <string name="duplicate">Duplicate selection</string>
+  <string name="delete">Delete selection</string>
+  <string name="lock_canvas">Lock board (only pan and zoom)</string>
+  <string name="crop">Crop mode: drag corner handles</string>
+  <string name="rotate">Allow rotating images</string>
+  <string name="reset_crop">Undo cropping of selection</string>
+  <string name="reset_transform">Reset size and rotation of selection</string>
 </resources>

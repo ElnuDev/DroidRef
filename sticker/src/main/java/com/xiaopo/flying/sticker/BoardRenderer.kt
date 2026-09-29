@@ -52,6 +52,11 @@ class BoardRenderer(context: Context) {
         color = Color.WHITE
     }
 
+    private val hintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = 16 * density
+        textAlign = Paint.Align.CENTER
+    }
+
     private val points = FloatArray(8)
     private val mapped = FloatArray(8)
     private val path = Path()
@@ -100,6 +105,9 @@ class BoardRenderer(context: Context) {
     }
 
     fun drawOverlay(canvas: Canvas, viewModel: StickerViewModel, stickers: List<Sticker>) {
+        if (stickers.isEmpty()) {
+            drawEmptyHint(canvas, viewModel)
+        }
         val canvasMatrix = viewModel.canvasMatrix.value!!.getMatrix()
         if (viewModel.isLocked.value != true) {
             drawSelection(canvas, viewModel, canvasMatrix)
@@ -132,6 +140,20 @@ class BoardRenderer(context: Context) {
             canvas.drawCircle(p.x, cy, radius, loupeRing)
             canvas.drawCircle(p.x, p.y, 6 * density, loupeRing)
             canvas.drawText(hex(viewModel.pickedColor), p.x, cy - radius - 8 * density, loupeText)
+        }
+    }
+
+    private fun drawEmptyHint(canvas: Canvas, viewModel: StickerViewModel) {
+        val hint = viewModel.emptyHint ?: return
+        val background = viewModel.backgroundColor.value ?: StickerViewModel.DEFAULT_BACKGROUND
+        val contrast = if (ColorUtils.calculateLuminance(background) > 0.5) Color.BLACK else Color.WHITE
+        hintPaint.color = ColorUtils.setAlphaComponent(contrast, 140)
+        val lines = hint.split('\n')
+        val lineHeight = hintPaint.fontSpacing
+        var y = viewModel.viewHeight / 2f - lineHeight * (lines.size - 1) / 2
+        for (line in lines) {
+            canvas.drawText(line, viewModel.viewWidth / 2f, y, hintPaint)
+            y += lineHeight
         }
     }
 

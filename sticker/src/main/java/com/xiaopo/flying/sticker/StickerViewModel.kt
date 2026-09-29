@@ -104,6 +104,9 @@ open class StickerViewModel :
 
     lateinit var stickerOperationListener: StickerView.OnStickerOperationListener
 
+    /** Shown in the middle of an empty board. */
+    var emptyHint: String? = null
+
     /** Screen space covered by toolbars, kept clear when framing items. */
     var frameInsetTop = 0f
     var frameInsetBottom = 0f
