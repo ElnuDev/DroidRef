@@ -40,6 +40,8 @@ Everything else, including folder import and pen settings, is in the More (⋮) 
 
 `nix develop` gives a shell with the Android SDK, Gradle and an emulator; `nix build` produces the APK and `nix run .#emulator` boots an emulator with the app installed.
 
+The themes in `app/src/main/res/values/themes.xml` are generated from Krita's colour schemes with `tools/generate_krita_themes.py <krita>/share/color-schemes`.
+
 ## Credits
 
 Most of the code was adapted from https://github.com/wuapnjie/StickerView.

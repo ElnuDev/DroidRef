@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Theme colours, taken from Krita's colour schemes (see values/themes.xml). -->
+    <!-- Theme colours from Krita's colour schemes; see tools/generate_krita_themes.py. -->
     <attr name="droidrefBoard" format="color" />
-    <attr name="droidrefPanel" format="color" />
-    <attr name="droidrefPanelForeground" format="color" />
-    <attr name="droidrefPanelForegroundInactive" format="color" />
-    <attr name="droidrefPanelForegroundDisabled" format="color" />
+    <attr name="droidrefWindow" format="color" />
+    <attr name="droidrefWindowForeground" format="color" />
+    <attr name="droidrefWindowForegroundInactive" format="color" />
+    <attr name="droidrefButton" format="color" />
+    <attr name="droidrefButtonForeground" format="color" />
+    <attr name="droidrefButtonForegroundDisabled" format="color" />
     <attr name="droidrefPrimary" format="color" />
     <attr name="droidrefOnPrimary" format="color" />
     <attr name="droidrefLightTheme" format="boolean" />

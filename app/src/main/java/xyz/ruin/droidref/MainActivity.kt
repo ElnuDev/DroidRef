@@ -115,6 +115,7 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
         stickerViewModel.stickerOperationListener = RedrawListener(binding.stickerView)
         stickerViewModel.boardListener = this
         stickerViewModel.accentColor = themeColor(R.attr.droidrefPrimary)
+        stickerViewModel.emptyHintColor = themeColor(R.attr.droidrefWindowForeground)
         stickerViewModel.emptyHint =
             "Tap Add to bring in images\nLong-press any button to see what it does\nMore › Help lists the gestures"
         binding.viewModel = stickerViewModel
@@ -617,7 +618,8 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
         vm.gridMode.value = GridMode.entries[prefs.getInt(PREF_GRID, 0).coerceIn(0, GridMode.entries.size - 1)]
         vm.snapToGrid.value = prefs.getBoolean(PREF_SNAP, false)
         vm.canvasGrayscale.value = prefs.getBoolean(PREF_GRAYSCALE, false)
-        vm.backgroundColor.value = prefs.getInt(PREF_BACKGROUND, themeColor(R.attr.droidrefBoard))
+        // The board follows the theme unless a background was chosen explicitly.
+        vm.backgroundColor.value = prefs.getInt(PREF_BACKGROUND_CUSTOM, themeColor(R.attr.droidrefBoard))
         vm.autoArrange.value = prefs.getBoolean(PREF_AUTO_ARRANGE, true)
         vm.penColor = prefs.getInt(PREF_PEN_COLOR, vm.penColor)
         vm.penWidth = prefs.getFloat(PREF_PEN_WIDTH, vm.penWidth)
@@ -626,7 +628,7 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
         vm.gridMode.observe(this) { prefs.edit().putInt(PREF_GRID, it.ordinal).apply(); redraw() }
         vm.snapToGrid.observe(this) { prefs.edit().putBoolean(PREF_SNAP, it).apply() }
         vm.canvasGrayscale.observe(this) { prefs.edit().putBoolean(PREF_GRAYSCALE, it).apply(); redraw() }
-        vm.backgroundColor.observe(this) { prefs.edit().putInt(PREF_BACKGROUND, it).apply(); redraw() }
+        vm.backgroundColor.observe(this) { redraw() }
         vm.autoArrange.observe(this) { prefs.edit().putBoolean(PREF_AUTO_ARRANGE, it).apply() }
     }
 
@@ -744,7 +746,7 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
             R.id.action_grid_dots -> vm.gridMode.value = GridMode.DOTS
             R.id.action_snap -> vm.snapToGrid.value = !item.isChecked
             R.id.action_background -> Dialogs.color(this, "Background color", vm.backgroundColor.value!!) {
-                vm.backgroundColor.value = it or 0xFF000000.toInt()
+                setCustomBackground(it)
             }
             R.id.action_pen -> editPen()
             R.id.action_help -> showHelp()
@@ -964,15 +966,21 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
         return theme.resolveAttribute(attr, value, true) && value.data != 0
     }
 
+    private fun setCustomBackground(color: Int) {
+        val opaque = color or 0xFF000000.toInt()
+        prefs.edit().putInt(PREF_BACKGROUND_CUSTOM, opaque).apply()
+        stickerViewModel.backgroundColor.value = opaque
+    }
+
     private fun applyTheme(chosen: KritaTheme) {
         if (chosen == currentTheme()) return
-        // The board background follows the theme; it can still be changed afterwards.
+        // Switching themes goes back to the theme's own board colour.
         val board = obtainStyledAttributes(chosen.style, intArrayOf(R.attr.droidrefBoard)).use {
             it.getColor(0, StickerViewModel.DEFAULT_BACKGROUND)
         }
         prefs.edit()
             .putString(PREF_THEME, chosen.key)
-            .putInt(PREF_BACKGROUND, board)
+            .remove(PREF_BACKGROUND_CUSTOM)
             .commit()
         stickerViewModel.backgroundColor.value = board
         recreate()
@@ -1005,7 +1013,7 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
                 stickerViewModel.penColor = color or 0xFF000000.toInt()
                 savePen()
             },
-            onUseForBackground = { stickerViewModel.backgroundColor.value = color or 0xFF000000.toInt() }
+            onUseForBackground = { setCustomBackground(color) }
         )
     }
 
@@ -1044,7 +1052,9 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
         private const val PREF_GRID = "grid"
         private const val PREF_SNAP = "snap"
         private const val PREF_GRAYSCALE = "grayscale"
-        private const val PREF_BACKGROUND = "background"
+        // Only set when the user picks a background; otherwise the theme's board colour is used.
+        // (The old "background" key also stored theme defaults, so it's no longer read.)
+        private const val PREF_BACKGROUND_CUSTOM = "backgroundCustom"
         private const val PREF_AUTO_ARRANGE = "autoArrange"
         private const val PREF_PEN_COLOR = "penColor"
         private const val PREF_PEN_WIDTH = "penWidth"

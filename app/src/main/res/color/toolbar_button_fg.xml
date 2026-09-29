@@ -2,6 +2,6 @@
 <!-- Icon and label colour of toolbar buttons. -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:color="?attr/droidrefOnPrimary" android:state_selected="true" />
-    <item android:color="?attr/droidrefPanelForegroundDisabled" android:state_enabled="false" />
-    <item android:color="?attr/droidrefPanelForeground" />
+    <item android:color="?attr/droidrefButtonForegroundDisabled" android:state_enabled="false" />
+    <item android:color="?attr/droidrefButtonForeground" />
 </selector>

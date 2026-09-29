@@ -150,7 +150,8 @@ class BoardRenderer(context: Context) {
         val hint = viewModel.emptyHint ?: return
         val background = viewModel.backgroundColor.value ?: StickerViewModel.DEFAULT_BACKGROUND
         val contrast = if (ColorUtils.calculateLuminance(background) > 0.5) Color.BLACK else Color.WHITE
-        hintPaint.color = ColorUtils.setAlphaComponent(contrast, 140)
+        val text = if (viewModel.emptyHintColor != 0) viewModel.emptyHintColor else contrast
+        hintPaint.color = ColorUtils.setAlphaComponent(text, 170)
         val lines = hint.split('\n')
         val lineHeight = hintPaint.fontSpacing
         var y = viewModel.viewHeight / 2f - lineHeight * (lines.size - 1) / 2

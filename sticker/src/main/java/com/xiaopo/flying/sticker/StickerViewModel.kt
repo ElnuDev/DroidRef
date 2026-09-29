@@ -119,6 +119,9 @@ open class StickerViewModel :
     /** Shown in the middle of an empty board. */
     var emptyHint: String? = null
 
+    /** Theme's text colour for the empty-board hint; 0 picks black or white by contrast. */
+    var emptyHintColor: Int = 0
+
     /** Screen space covered by toolbars, kept clear when framing items. */
     var frameInsetTop = 0f
     var frameInsetBottom = 0f
