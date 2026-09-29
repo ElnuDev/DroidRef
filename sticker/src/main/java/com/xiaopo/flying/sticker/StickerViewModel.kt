@@ -92,6 +92,9 @@ open class StickerViewModel :
         fun onEditNote(note: NoteSticker)
         fun onColorPicked(color: Int)
         fun onMessage(message: String)
+
+        /** A two- or three-finger tap undid or redid something ([done] false if there was nothing to). */
+        fun onHistoryGesture(redo: Boolean, done: Boolean)
     }
 
     var boardListener: BoardListener? = null
@@ -403,11 +406,12 @@ open class StickerViewModel :
 
     fun redo() = restoreHistory { history.redo(items) }
 
-    private fun restoreHistory(step: () -> Boolean) {
+    private fun restoreHistory(step: () -> Boolean): Boolean {
         val selectedIds = selection.map { it.id }.toSet()
-        if (!step()) return
+        if (!step()) return false
         updateCanvasMatrix()
         setSelection(items.filter { it.id in selectedIds })
+        return true
     }
 
     /** Runs a board change as a single undo step and redraws. */
@@ -444,9 +448,46 @@ open class StickerViewModel :
 
     private val longPressRunnable = Runnable { onLongPress() }
 
+    // Multi-finger tap detection (two fingers: undo, three: redo).
+    private var gestureStartTime = 0L
+    private var maxPointers = 0
+    private var fingersMoved = false
+    private val pointerStarts = HashMap<Int, PointF>()
+
+    private fun trackFingers(view: View, event: MotionEvent) {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                gestureStartTime = event.eventTime
+                maxPointers = 1
+                fingersMoved = false
+                pointerStarts.clear()
+                pointerStarts[event.getPointerId(0)] = PointF(event.x, event.y)
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                val i = event.actionIndex
+                pointerStarts[event.getPointerId(i)] = PointF(event.getX(i), event.getY(i))
+                maxPointers = max(maxPointers, event.pointerCount)
+            }
+            MotionEvent.ACTION_MOVE -> if (!fingersMoved) {
+                val slop = ViewConfiguration.get(view.context).scaledTouchSlop
+                for (i in 0 until event.pointerCount) {
+                    val start = pointerStarts[event.getPointerId(i)] ?: continue
+                    if (hypot(event.getX(i) - start.x, event.getY(i) - start.y) > slop) {
+                        fingersMoved = true
+                    }
+                }
+            }
+        }
+    }
+
+    /** Whether the gesture that just ended was a quick tap with several fingers. */
+    private fun isMultiFingerTap(event: MotionEvent) =
+        maxPointers >= 2 && !fingersMoved && event.eventTime - gestureStartTime < MULTI_TAP_TIMEOUT
+
     @SuppressLint("ClickableViewAccessibility")
     fun onTouchEvent(view: StickerView, event: MotionEvent): Boolean {
         cancelCameraAnimation()
+        trackFingers(view, event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> onDown(view, event)
             MotionEvent.ACTION_POINTER_DOWN -> onPointerDown(event)
@@ -635,7 +676,9 @@ open class StickerViewModel :
                 val hits = items.filter { !it.isLocked && it.intersectsWorld(world) }
                 setSelection(selectionBeforePress + hits)
             }
-            Gesture.PINCH_CANVAS -> if (event.pointerCount >= 2) {
+            // Pinches only start once the fingers really move, so a
+            // two-finger tap (undo) never nudges anything.
+            Gesture.PINCH_CANVAS -> if (event.pointerCount >= 2 && fingersMoved) {
                 val (scale, _, mid) = pinch(event)
                 moveMatrix.set(startCanvas)
                 moveMatrix.postTranslate(mid.x - pinchStartMid.x, mid.y - pinchStartMid.y)
@@ -644,7 +687,7 @@ open class StickerViewModel :
                 moveMatrix.postScale(clamped, clamped, mid.x, mid.y)
                 setCanvas(moveMatrix)
             }
-            Gesture.PINCH_ITEMS -> if (event.pointerCount >= 2) {
+            Gesture.PINCH_ITEMS -> if (event.pointerCount >= 2 && fingersMoved) {
                 val (scale, angle, mid) = pinch(event)
                 val pivot = screenToWorld(pinchStartMid.x, pinchStartMid.y)
                 val shift = screenToWorldVector(mid.x - pinchStartMid.x, mid.y - pinchStartMid.y)
@@ -728,6 +771,14 @@ open class StickerViewModel :
 
     private fun onUp(view: StickerView, event: MotionEvent) {
         cancelLongPress()
+        if (isMultiFingerTap(event)) {
+            history.commit(items)
+            resetGesture()
+            val redo = maxPointers >= 3
+            val done = if (redo) redo() else undo()
+            boardListener?.onHistoryGesture(redo, done)
+            return
+        }
         when (gesture) {
             Gesture.DRAW -> finishStroke()
             Gesture.PICK -> {
@@ -755,7 +806,12 @@ open class StickerViewModel :
             Gesture.MARQUEE -> marquee = null
             Gesture.PAN, Gesture.PINCH_CANVAS, Gesture.NONE -> {}
         }
+        resetGesture()
+    }
+
+    private fun resetGesture() {
         gesture = Gesture.NONE
+        marquee = null
         currentMode.value = ActionMode.NONE
         currentIcon.value = null
         pressed = null
@@ -1409,6 +1465,9 @@ open class StickerViewModel :
 
         /** World units between grid lines, and the snapping step. */
         const val GRID_SIZE = 50f
+
+        /** Longest a two/three-finger touch can last and still count as a tap. */
+        const val MULTI_TAP_TIMEOUT = 400L
 
         const val MIN_ZOOM = 0.01f
         const val MAX_ZOOM = 50f

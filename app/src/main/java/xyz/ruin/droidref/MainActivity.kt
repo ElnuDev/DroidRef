@@ -864,6 +864,7 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
                 • Only selected images move: drag a selected image to move the selection, pinch on it to resize.
                 • Dragging or pinching anywhere else, even on other images, moves around the board.
                 • Double-tap an image to zoom to it; again to zoom back. Double-tap a note to edit it.
+                • Tap with two fingers to undo, three fingers to redo.
 
                 Toolbar
                 • Long-press any button to see what it does; the ? in the corner shows or hides the labels.
@@ -961,6 +962,16 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
     }
 
     override fun onMessage(message: String) = toast(message)
+
+    override fun onHistoryGesture(redo: Boolean, done: Boolean) {
+        val message = when {
+            done && redo -> "Redo"
+            done -> "Undo"
+            redo -> "Nothing to redo"
+            else -> "Nothing to undo"
+        }
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
 
     // endregion
 

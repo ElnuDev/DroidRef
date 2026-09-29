@@ -27,6 +27,7 @@ Modelled on PureRef:
 | Drag / pinch a selected image | Move / scale the selection (and rotate, if rotation is on) |
 | Drag / pinch anywhere else | Pan / zoom the board, even over unselected images |
 | Double-tap an image | Zoom to it; again to go back. Edits notes. |
+| Two-finger tap / three-finger tap | Undo / redo |
 | Long-press a toolbar button | Show what it does |
 
 Only selected images respond to dragging, so a board covered wall to wall in images can still be panned and zoomed.
