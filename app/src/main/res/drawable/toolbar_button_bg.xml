@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shared by every toolbar button; "selected" marks a toggle that is on. -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#40FFFFFF">
+    <item>
+        <selector>
+            <item android:state_selected="true">
+                <inset android:inset="3dp">
+                    <shape android:shape="rectangle">
+                        <corners android:radius="8dp" />
+                        <solid android:color="@color/toolbar_button_on" />
+                    </shape>
+                </inset>
+            </item>
+            <item>
+                <inset android:inset="3dp">
+                    <shape android:shape="rectangle">
+                        <corners android:radius="8dp" />
+                        <solid android:color="@color/toolbar_button" />
+                    </shape>
+                </inset>
+            </item>
+        </selector>
+    </item>
+</ripple>

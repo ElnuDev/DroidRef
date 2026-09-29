@@ -10,20 +10,12 @@
     <item name="colorControlNormal">@color/disabled</item>
   </style>
 
+  <!-- Every toolbar button: a centred 24dp icon in a 48dp square. -->
   <style name="ToolbarButton">
-    <item name="android:layout_width">wrap_content</item>
-    <item name="android:layout_height">match_parent</item>
-    <item name="android:minWidth">48dp</item>
-  </style>
-
-  <style name="ToolbarToggle">
-    <item name="android:layout_width">wrap_content</item>
-    <item name="android:layout_height">match_parent</item>
-    <item name="android:gravity">center</item>
-    <item name="android:minWidth">48dp</item>
-    <item name="android:textOff"></item>
-    <item name="android:textOn"></item>
-    <item name="android:textSize">0dp</item>
+    <item name="android:layout_width">48dp</item>
+    <item name="android:layout_height">48dp</item>
+    <item name="android:background">@drawable/toolbar_button_bg</item>
+    <item name="android:scaleType">center</item>
   </style>
 
 </resources>

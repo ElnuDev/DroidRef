@@ -541,13 +541,16 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
             vm.resetCurrentStickerRotation()
             true
         }
-        binding.buttonHideShowUI.setOnCheckedChangeListener { _, isToggled -> setUIVisibility(isToggled) }
+        binding.buttonHideShowUI.setOnClickListener { setUIVisibility(!binding.buttonHideShowUI.isSelected) }
+        binding.buttonLock.setOnClickListener { vm.isLocked.value = vm.isLocked.value != true }
+        binding.buttonCrop.setOnClickListener { vm.isCropActive.value = vm.isCropActive.value != true }
+        binding.buttonRotate.setOnClickListener { vm.rotationEnabled.value = vm.rotationEnabled.value != true }
 
         vm.revision.observe(this) { scheduleAutosave() }
 
         vm.tool.observe(this) { tool ->
-            binding.buttonDraw.isChecked = tool == Tool.DRAW
-            binding.buttonPicker.isChecked = tool == Tool.PICK_COLOR
+            binding.buttonDraw.isSelected = tool == Tool.DRAW
+            binding.buttonPicker.isSelected = tool == Tool.PICK_COLOR
             binding.stickerView.invalidate()
         }
     }
@@ -786,7 +789,7 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
         }
     }
 
-    private fun updateFrameInsets(hidden: Boolean = binding.buttonHideShowUI.isChecked) {
+    private fun updateFrameInsets(hidden: Boolean = binding.buttonHideShowUI.isSelected) {
         val toolbar = if (hidden) 0f else 48 * resources.displayMetrics.density
         stickerViewModel.frameInsetTop = systemBars.top + toolbar
         stickerViewModel.frameInsetBottom = systemBars.bottom + toolbar
@@ -799,9 +802,8 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
         binding.toolbarBottom.visibility = visibility
         binding.buttonMenu.visibility = visibility
         val icon = if (hidden) R.drawable.ic_baseline_visibility_off_24 else R.drawable.ic_baseline_visibility_24
-        binding.buttonHideShowUI.setCompoundDrawablesWithIntrinsicBounds(
-            null, ContextCompat.getDrawable(this, icon), null, null
-        )
+        binding.buttonHideShowUI.isSelected = hidden
+        binding.buttonHideShowUI.setImageResource(icon)
     }
 
 

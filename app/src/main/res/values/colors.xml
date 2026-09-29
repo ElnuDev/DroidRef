@@ -8,4 +8,6 @@
   <color name="disabled">#686868</color>
   <color name="enabled">#4FC3F7</color>
   <color name="icon">#FF666666</color>
+  <color name="toolbar_button">#CC424242</color>
+  <color name="toolbar_button_on">#E60288D1</color>
 </resources>

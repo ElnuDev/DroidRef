@@ -62,11 +62,11 @@
                         android:contentDescription="@string/menu"
                         app:srcCompat="@drawable/ic_more_vert_24" />
 
-                    <ToggleButton
+                    <ImageButton
                         android:id="@+id/buttonHideShowUI"
-                        style="@style/ToolbarToggle"
+                        style="@style/ToolbarButton"
                         android:contentDescription="@string/hide_ui"
-                        android:drawableTop="@drawable/ic_baseline_visibility_24" />
+                        app:srcCompat="@drawable/ic_baseline_visibility_24" />
                 </LinearLayout>
             </HorizontalScrollView>
 
@@ -74,6 +74,7 @@
                 android:id="@+id/toolbarTop"
                 android:layout_width="wrap_content"
                 android:layout_height="48dp"
+                android:layout_alignParentStart="true"
                 android:layout_alignParentTop="true"
                 android:layout_toStartOf="@id/toolbarHideShowUI"
                 android:scrollbars="none">
@@ -155,17 +156,17 @@
                         android:contentDescription="@string/add_note"
                         app:srcCompat="@drawable/ic_text_fields_24" />
 
-                    <ToggleButton
+                    <ImageButton
                         android:id="@+id/buttonDraw"
-                        style="@style/ToolbarToggle"
+                        style="@style/ToolbarButton"
                         android:contentDescription="@string/draw"
-                        android:drawableTop="@drawable/ic_edit_24" />
+                        app:srcCompat="@drawable/ic_edit_24" />
 
-                    <ToggleButton
+                    <ImageButton
                         android:id="@+id/buttonPicker"
-                        style="@style/ToolbarToggle"
+                        style="@style/ToolbarButton"
                         android:contentDescription="@string/color_picker"
-                        android:drawableTop="@drawable/ic_colorize_24" />
+                        app:srcCompat="@drawable/ic_colorize_24" />
 
                     <ImageButton
                         android:id="@+id/buttonArrange"
@@ -191,26 +192,26 @@
                         android:contentDescription="@string/delete"
                         app:srcCompat="@drawable/ic_delete_black_24dp" />
 
-                    <ToggleButton
+                    <ImageButton
                         android:id="@+id/buttonLock"
-                        style="@style/ToolbarToggle"
-                        android:checked="@={viewModel.isLocked}"
+                        style="@style/ToolbarButton"
+                        android:selected="@{safeUnbox(viewModel.isLocked)}"
                         android:contentDescription="@string/lock_canvas"
-                        android:drawableTop="@drawable/ic_lock_outline_black_24dp" />
+                        app:srcCompat="@drawable/ic_lock_outline_black_24dp" />
 
-                    <ToggleButton
+                    <ImageButton
                         android:id="@+id/buttonCrop"
-                        style="@style/ToolbarToggle"
-                        android:checked="@={viewModel.isCropActive}"
+                        style="@style/ToolbarButton"
+                        android:selected="@{safeUnbox(viewModel.isCropActive)}"
                         android:contentDescription="@string/crop"
-                        android:drawableTop="@drawable/ic_crop_black_24dp" />
+                        app:srcCompat="@drawable/ic_crop_black_24dp" />
 
-                    <ToggleButton
+                    <ImageButton
                         android:id="@+id/buttonRotate"
-                        style="@style/ToolbarToggle"
-                        android:checked="@={viewModel.rotationEnabled}"
+                        style="@style/ToolbarButton"
+                        android:selected="@{safeUnbox(viewModel.rotationEnabled)}"
                         android:contentDescription="@string/rotate"
-                        android:drawableTop="@drawable/ic_rotate" />
+                        app:srcCompat="@drawable/ic_rotate" />
 
                     <ImageButton
                         android:id="@+id/buttonResetCrop"
