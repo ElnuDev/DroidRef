@@ -803,6 +803,8 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
         (bar.getChildAt(0) as ViewGroup).children.filterIsInstance<TextView>().toList()
 
     /** Shows or hides the text under the toolbar icons. */
+    private val labelPadding by lazy { (6 * resources.displayMetrics.density).toInt() }
+
     private fun applyButtonLabels(show: Boolean) {
         val size = resources.getDimensionPixelSize(
             if (show) R.dimen.toolbar_button_labelled else R.dimen.toolbar_button_compact
@@ -811,6 +813,11 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
             for (button in toolbarButtons(bar)) {
                 if (button.tag == null) button.tag = button.text
                 button.text = if (show) button.tag as CharSequence else null
+                // A drawableTop icon sits at the top padding (only the text is
+                // centred), so without a label centre it with the padding.
+                val icon = button.compoundDrawables[1]?.intrinsicHeight ?: 0
+                val top = if (show) labelPadding else (size - icon) / 2
+                button.setPadding(button.paddingLeft, top, button.paddingRight, if (show) labelPadding else 0)
                 button.minWidth = resources.getDimensionPixelSize(
                     if (show) R.dimen.toolbar_button_width else R.dimen.toolbar_button_compact
                 )
