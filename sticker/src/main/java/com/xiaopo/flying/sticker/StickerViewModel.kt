@@ -113,6 +113,9 @@ open class StickerViewModel :
 
     lateinit var stickerOperationListener: StickerView.OnStickerOperationListener
 
+    /** Theme's primary colour, used for selection outlines and the rubber band. */
+    var accentColor: Int = BoardRenderer.SELECTION_COLOR
+
     /** Shown in the middle of an empty board. */
     var emptyHint: String? = null
 

@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.text.InputType
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.widget.CheckBox
@@ -25,6 +26,12 @@ object Dialogs {
     )
 
     private fun Context.dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+
+    fun Context.themeColor(attr: Int): Int {
+        val value = TypedValue()
+        theme.resolveAttribute(attr, value, true)
+        return value.data
+    }
 
     private fun column(context: Context) = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
@@ -69,7 +76,7 @@ object Dialogs {
                 cell.background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
                     setColor(color)
-                    val ring = if (color == chosen) BoardRenderer.SELECTION_COLOR else Color.GRAY
+                    val ring = if (color == chosen) cell.context.themeColor(R.attr.droidrefPrimary) else Color.GRAY
                     setStroke(cell.context.dp(if (color == chosen) 3 else 1), ring)
                 }
             }

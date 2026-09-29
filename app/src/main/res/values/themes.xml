@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+    Themes mirroring Krita's default colour schemes (share/color-schemes/Krita*.colors):
+      droidrefBoard         [Colors:View]      BackgroundNormal
+      droidrefPanel         [Colors:Window]    BackgroundNormal
+      droidrefPanelForeground         [Colors:Window]    ForegroundNormal
+      droidrefPanelForegroundInactive [Colors:Window]    ForegroundInactive
+      droidrefPanelForegroundDisabled [Colors:Window]    ForegroundNormal with [ColorEffects:Disabled]
+                                      applied as KDE's KColorScheme does (computed offline)
+      droidrefPrimary            [Colors:Selection] BackgroundNormal
+      droidrefOnPrimary          [Colors:Selection] ForegroundNormal
+    -->
+
+    <style name="Theme.DroidRef.Dark" parent="Theme.AppCompat.NoActionBar">
+        <item name="droidrefLightTheme">false</item>
+        <item name="colorPrimary">?attr/droidrefPanel</item>
+        <item name="colorPrimaryDark">?attr/droidrefPanel</item>
+        <item name="colorAccent">?attr/droidrefPrimary</item>
+        <item name="colorControlActivated">?attr/droidrefPrimary</item>
+        <item name="colorControlNormal">?attr/droidrefPanelForegroundInactive</item>
+        <item name="android:colorBackground">?attr/droidrefPanel</item>
+        <item name="android:colorBackgroundFloating">?attr/droidrefPanel</item>
+        <item name="android:windowBackground">?attr/droidrefBoard</item>
+        <item name="android:textColorPrimary">?attr/droidrefPanelForeground</item>
+        <item name="android:textColorSecondary">?attr/droidrefPanelForegroundInactive</item>
+    </style>
+
+    <style name="Theme.DroidRef.Light" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="droidrefLightTheme">true</item>
+        <item name="colorPrimary">?attr/droidrefPanel</item>
+        <item name="colorPrimaryDark">?attr/droidrefPanel</item>
+        <item name="colorAccent">?attr/droidrefPrimary</item>
+        <item name="colorControlActivated">?attr/droidrefPrimary</item>
+        <item name="colorControlNormal">?attr/droidrefPanelForegroundInactive</item>
+        <item name="android:colorBackground">?attr/droidrefPanel</item>
+        <item name="android:colorBackgroundFloating">?attr/droidrefPanel</item>
+        <item name="android:windowBackground">?attr/droidrefBoard</item>
+        <item name="android:textColorPrimary">?attr/droidrefPanelForeground</item>
+        <item name="android:textColorSecondary">?attr/droidrefPanelForegroundInactive</item>
+    </style>
+
+    <!-- Krita's default. -->
+    <style name="Theme.DroidRef.KritaDark" parent="Theme.DroidRef.Dark">
+        <item name="droidrefBoard">#383838</item>
+        <item name="droidrefPanel">#474747</item>
+        <item name="droidrefPanelForeground">#C8C8C8</item>
+        <item name="droidrefPanelForegroundInactive">#9CA2AE</item>
+        <item name="droidrefPanelForegroundDisabled">#808080</item>
+        <item name="droidrefPrimary">#53728E</item>
+        <item name="droidrefOnPrimary">#EBEBEB</item>
+    </style>
+
+    <style name="Theme.DroidRef.KritaDarker" parent="Theme.DroidRef.Dark">
+        <item name="droidrefBoard">#1C1C1C</item>
+        <item name="droidrefPanel">#323232</item>
+        <item name="droidrefPanelForeground">#EBEBEB</item>
+        <item name="droidrefPanelForegroundInactive">#787775</item>
+        <item name="droidrefPanelForegroundDisabled">#898989</item>
+        <item name="droidrefPrimary">#53728E</item>
+        <item name="droidrefOnPrimary">#FFFFFF</item>
+    </style>
+
+    <style name="Theme.DroidRef.KritaBright" parent="Theme.DroidRef.Light">
+        <item name="droidrefBoard">#F4F4F4</item>
+        <item name="droidrefPanel">#D4D4D4</item>
+        <item name="droidrefPanelForeground">#2A2A2A</item>
+        <item name="droidrefPanelForegroundInactive">#4E6882</item>
+        <item name="droidrefPanelForegroundDisabled">#8D8D8D</item>
+        <item name="droidrefPrimary">#5C90BC</item>
+        <item name="droidrefOnPrimary">#F0F0F0</item>
+    </style>
+
+    <style name="Theme.DroidRef.KritaNeutral" parent="Theme.DroidRef.Light">
+        <item name="droidrefBoard">#AAAAAA</item>
+        <item name="droidrefPanel">#808080</item>
+        <item name="droidrefPanelForeground">#121212</item>
+        <item name="droidrefPanelForegroundInactive">#525252</item>
+        <item name="droidrefPanelForegroundDisabled">#383838</item>
+        <item name="droidrefPrimary">#2A5B8F</item>
+        <item name="droidrefOnPrimary">#B4B4B4</item>
+    </style>
+
+    <style name="Theme.DroidRef.KritaBlender" parent="Theme.DroidRef.Dark">
+        <item name="droidrefBoard">#3D3D3D</item>
+        <item name="droidrefPanel">#303030</item>
+        <item name="droidrefPanelForeground">#EBEBEB</item>
+        <item name="droidrefPanelForegroundInactive">#C3C3C3</item>
+        <item name="droidrefPanelForegroundDisabled">#BCBCBC</item>
+        <item name="droidrefPrimary">#5983C5</item>
+        <item name="droidrefOnPrimary">#FFFFFF</item>
+    </style>
+
+    <style name="Theme.DroidRef.KritaDarkOrange" parent="Theme.DroidRef.Dark">
+        <item name="droidrefBoard">#242424</item>
+        <item name="droidrefPanel">#1F1F1F</item>
+        <item name="droidrefPanelForeground">#FFFFFF</item>
+        <item name="droidrefPanelForegroundInactive">#BDC3C7</item>
+        <item name="droidrefPanelForegroundDisabled">#686868</item>
+        <item name="droidrefPrimary">#FFA200</item>
+        <item name="droidrefOnPrimary">#2C1B00</item>
+    </style>
+</resources>

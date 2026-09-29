@@ -16,6 +16,7 @@ Modelled on PureRef:
 - **Notes** and **pen drawings** that move and scale like images; **groups**.
 - **Canvas:** grid (lines/dots) with snapping, grayscale view, background colour, color picker, fit all, zoom to selection, slideshow.
 - **Undo/redo**, autosave, and export of images or the whole board as one PNG.
+- **Themes** matching Krita's six default colour schemes (dark, darker, bright, neutral, blender, dark orange), under More › View › Theme.
 
 ### Gestures
 

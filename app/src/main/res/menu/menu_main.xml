@@ -92,6 +92,18 @@
                 android:id="@+id/action_snap"
                 android:checkable="true"
                 android:title="Snap to grid" />
+            <item android:title="Theme">
+                <menu>
+                    <group android:checkableBehavior="single">
+                        <item android:id="@+id/theme_krita_dark" android:title="Krita dark" />
+                        <item android:id="@+id/theme_krita_darker" android:title="Krita darker" />
+                        <item android:id="@+id/theme_krita_bright" android:title="Krita bright" />
+                        <item android:id="@+id/theme_krita_neutral" android:title="Krita neutral" />
+                        <item android:id="@+id/theme_krita_blender" android:title="Krita blender" />
+                        <item android:id="@+id/theme_krita_dark_orange" android:title="Krita dark orange" />
+                    </group>
+                </menu>
+            </item>
             <item android:id="@+id/action_background" android:title="Background color…" />
             <item android:id="@+id/action_pen" android:title="Pen color and width…" />
         </menu>

@@ -13,6 +13,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Parcelable
 import android.util.Patterns
+import android.util.TypedValue
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
@@ -52,6 +53,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import timber.log.Timber
+import xyz.ruin.droidref.Dialogs.themeColor
 import xyz.ruin.droidref.databinding.ActivityMainBinding
 import java.io.File
 import java.text.SimpleDateFormat
@@ -91,11 +93,14 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
         }
         // Draw the board under the system bars (mandatory when targeting
         // Android 15+); the toolbars are inset below in applySystemBarInsets.
-        // The board is always dark, so always use light system bar icons.
-        enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
-            navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
-        )
+        setTheme(currentTheme().style)
+        // System bar icons follow the theme (dark icons on Krita bright/neutral).
+        val barStyle = if (themeBoolean(R.attr.droidrefLightTheme)) {
+            SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
+        } else {
+            SystemBarStyle.dark(Color.TRANSPARENT)
+        }
+        enableEdgeToEdge(statusBarStyle = barStyle, navigationBarStyle = barStyle)
         super.onCreate(savedInstanceState)
 
         binding = DataBindingUtil.setContentView(this, R.layout.activity_main)
@@ -109,6 +114,7 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
         stickerViewModel = ViewModelProvider(this)[StickerViewModel::class.java]
         stickerViewModel.stickerOperationListener = RedrawListener(binding.stickerView)
         stickerViewModel.boardListener = this
+        stickerViewModel.accentColor = themeColor(R.attr.droidrefPrimary)
         stickerViewModel.emptyHint =
             "Tap Add to bring in images\nLong-press any button to see what it does\nMore › Help lists the gestures"
         binding.viewModel = stickerViewModel
@@ -611,7 +617,7 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
         vm.gridMode.value = GridMode.entries[prefs.getInt(PREF_GRID, 0).coerceIn(0, GridMode.entries.size - 1)]
         vm.snapToGrid.value = prefs.getBoolean(PREF_SNAP, false)
         vm.canvasGrayscale.value = prefs.getBoolean(PREF_GRAYSCALE, false)
-        vm.backgroundColor.value = prefs.getInt(PREF_BACKGROUND, StickerViewModel.DEFAULT_BACKGROUND)
+        vm.backgroundColor.value = prefs.getInt(PREF_BACKGROUND, themeColor(R.attr.droidrefBoard))
         vm.autoArrange.value = prefs.getBoolean(PREF_AUTO_ARRANGE, true)
         vm.penColor = prefs.getInt(PREF_PEN_COLOR, vm.penColor)
         vm.penWidth = prefs.getFloat(PREF_PEN_WIDTH, vm.penWidth)
@@ -660,6 +666,7 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
                 else -> R.id.action_grid_none
             }
         ).isChecked = true
+        menu.findItem(currentTheme().menuId).isChecked = true
         popup.setOnMenuItemClickListener(::onMenuItem)
         popup.show()
     }
@@ -741,6 +748,7 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
             }
             R.id.action_pen -> editPen()
             R.id.action_help -> showHelp()
+            in THEMES.map { it.menuId } -> applyTheme(THEMES.first { it.menuId == item.itemId })
 
             R.id.action_export_selected -> withSelection { exportImages(vm.selected()) }
             R.id.action_export_all -> exportImages(ArrayList(items))
@@ -879,7 +887,7 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
                 • Long-press any button to see what it does; the ? in the corner shows or hides the labels.
                 • Add picks several images at once; they are arranged automatically.
                 • Arrange, Delete, Duplicate, Uncrop and Reset size act on the selection.
-                • Select, Draw, Color, Crop, Rotate and Lock are switches: blue means on.
+                • Select, Draw, Color, Crop, Rotate and Lock are switches: highlighted means on.
 
                 More (⋮) has everything else: align, normalize, grid, export, slideshow and settings.
                 """.trimIndent()
@@ -938,6 +946,37 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
         if (hidden) hintOnce("hide", "Tap Show to bring the toolbars back.")
     }
 
+
+    // endregion
+
+    // region Theme
+
+    /** A Krita colour scheme, as an Android theme. */
+    class KritaTheme(val key: String, val style: Int, val menuId: Int)
+
+    private fun currentTheme(): KritaTheme {
+        val key = prefs.getString(PREF_THEME, null)
+        return THEMES.firstOrNull { it.key == key } ?: THEMES[0]
+    }
+
+    private fun themeBoolean(attr: Int): Boolean {
+        val value = TypedValue()
+        return theme.resolveAttribute(attr, value, true) && value.data != 0
+    }
+
+    private fun applyTheme(chosen: KritaTheme) {
+        if (chosen == currentTheme()) return
+        // The board background follows the theme; it can still be changed afterwards.
+        val board = obtainStyledAttributes(chosen.style, intArrayOf(R.attr.droidrefBoard)).use {
+            it.getColor(0, StickerViewModel.DEFAULT_BACKGROUND)
+        }
+        prefs.edit()
+            .putString(PREF_THEME, chosen.key)
+            .putInt(PREF_BACKGROUND, board)
+            .commit()
+        stickerViewModel.backgroundColor.value = board
+        recreate()
+    }
 
     // endregion
 
@@ -1011,6 +1050,16 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
         private const val PREF_PEN_WIDTH = "penWidth"
         private const val PREF_CURRENT_FILE = "currentFile"
         private const val PREF_LABELS = "buttonLabels"
+        private const val PREF_THEME = "theme"
+
+        private val THEMES = listOf(
+            KritaTheme("krita_dark", R.style.Theme_DroidRef_KritaDark, R.id.theme_krita_dark),
+            KritaTheme("krita_darker", R.style.Theme_DroidRef_KritaDarker, R.id.theme_krita_darker),
+            KritaTheme("krita_bright", R.style.Theme_DroidRef_KritaBright, R.id.theme_krita_bright),
+            KritaTheme("krita_neutral", R.style.Theme_DroidRef_KritaNeutral, R.id.theme_krita_neutral),
+            KritaTheme("krita_blender", R.style.Theme_DroidRef_KritaBlender, R.id.theme_krita_blender),
+            KritaTheme("krita_dark_orange", R.style.Theme_DroidRef_KritaDarkOrange, R.id.theme_krita_dark_orange),
+        )
         private const val AUTOSAVE_FILE = "autosave.ref"
         private const val AUTOSAVE_DELAY_MS = 5_000L
 

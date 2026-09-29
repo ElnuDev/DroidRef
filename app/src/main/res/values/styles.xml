@@ -1,17 +1,7 @@
 <resources>
 
-  <!-- Base application theme. -->
-  <style name="AppTheme" parent="Theme.AppCompat.NoActionBar">
-    <!-- Customize your theme here. -->
-    <item name="colorPrimary">@color/colorPrimaryDark</item>
-    <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
-    <item name="colorAccent">@color/colorAccent</item>
-    <item name="colorControlActivated">@color/enabled</item>
-    <item name="colorControlNormal">@color/disabled</item>
-  </style>
-
   <!-- Every toolbar button: a 24dp icon over a short label, on a shared
-       rounded background. Labels can be turned off in View settings. -->
+       rounded background, coloured by the theme. The ? button hides labels. -->
   <style name="ToolbarButton">
     <item name="android:layout_width">wrap_content</item>
     <item name="android:layout_height">@dimen/toolbar_button_labelled</item>
@@ -27,7 +17,8 @@
     <item name="android:includeFontPadding">false</item>
     <item name="android:maxLines">1</item>
     <item name="android:textSize">10sp</item>
-    <item name="android:textColor">@android:color/white</item>
+    <item name="android:textColor">@color/toolbar_button_fg</item>
+    <item name="android:drawableTint">@color/toolbar_button_fg</item>
   </style>
 
 </resources>

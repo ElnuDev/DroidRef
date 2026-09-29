@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Theme colours, taken from Krita's colour schemes (see values/themes.xml). -->
+    <attr name="droidrefBoard" format="color" />
+    <attr name="droidrefPanel" format="color" />
+    <attr name="droidrefPanelForeground" format="color" />
+    <attr name="droidrefPanelForegroundInactive" format="color" />
+    <attr name="droidrefPanelForegroundDisabled" format="color" />
+    <attr name="droidrefPrimary" format="color" />
+    <attr name="droidrefOnPrimary" format="color" />
+    <attr name="droidrefLightTheme" format="boolean" />
+</resources>

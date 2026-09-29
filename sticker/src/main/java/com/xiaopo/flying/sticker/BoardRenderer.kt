@@ -105,6 +105,9 @@ class BoardRenderer(context: Context) {
     }
 
     fun drawOverlay(canvas: Canvas, viewModel: StickerViewModel, stickers: List<Sticker>) {
+        selectionPaint.color = viewModel.accentColor
+        groupPaint.color = viewModel.accentColor
+        marqueeFill.color = ColorUtils.setAlphaComponent(viewModel.accentColor, 40)
         if (stickers.isEmpty()) {
             drawEmptyHint(canvas, viewModel)
         }
