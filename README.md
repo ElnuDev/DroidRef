@@ -6,6 +6,37 @@ Download the latest release [here](https://github.com/Ruin0x11/DroidRef/releases
 
 ![Screenshot](./static/screenshot.png)
 
+## Features
+
+Modelled on PureRef:
+
+- **Import** many images at once (picker multi-select, a whole folder, share from other apps, paste, or a link). New batches are packed automatically and framed on screen.
+- **Arrange** optimally, by name, by order added, or randomly; **align** left/right/top/bottom, in a row or column, or stack; **normalize** height, width, scale, size or area.
+- **Per image:** crop, flip, rotate, grayscale, opacity, nearest-neighbour sampling, lock, comment, send to front/back, replace, open source link, reset transform/crop.
+- **Notes** and **pen drawings** that move and scale like images; **groups**.
+- **Canvas:** grid (lines/dots) with snapping, grayscale view, background colour, color picker, fit all, zoom to selection, slideshow.
+- **Undo/redo**, autosave, and export of images or the whole board as one PNG.
+
+### Gestures
+
+| Gesture | Action |
+| --- | --- |
+| Tap an item | Select it |
+| Long-press an item | Add it to / remove it from the selection |
+| Long-press empty canvas, then drag | Rubber-band select |
+| Drag an item | Move the selection |
+| Pinch on an item | Scale the selection (and rotate, if rotation is on) |
+| Drag / pinch on empty canvas | Pan / zoom |
+| Double-tap an item | Zoom to it; again to go back. Edits notes. |
+| Long-press the add button | Import a folder |
+| Long-press the draw button | Pen colour and width |
+
+Everything else is in the ⋮ menu.
+
+## Development
+
+`nix develop` gives a shell with the Android SDK, Gradle and an emulator; `nix build` produces the APK and `nix run .#emulator` boots an emulator with the app installed.
+
 ## Credits
 
 Most of the code was adapted from https://github.com/wuapnjie/StickerView.

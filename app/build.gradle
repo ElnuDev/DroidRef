@@ -20,6 +20,17 @@ android {
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        // A fixed debug key (debug keys aren't secret) so the Nix-built APK and
+        // local builds can update each other in place instead of per-machine keys.
+        debug {
+            storeFile file('debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
@@ -46,8 +57,6 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.8.0'
     implementation 'androidx.core:core-ktx:1.19.1'
     implementation 'androidx.constraintlayout:constraintlayout:2.2.2'
-    implementation 'com.github.kittinunf.fuel:fuel:2.3.1'
-    implementation 'com.github.kittinunf.fuel:fuel-android:2.3.1'
 
     def lifecycle_version = "2.11.0"
     implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:$lifecycle_version"

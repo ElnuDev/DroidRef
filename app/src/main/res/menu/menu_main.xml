@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:title="Add">
+        <menu>
+            <item android:id="@+id/action_add_images" android:title="Images…" />
+            <item android:id="@+id/action_add_folder" android:title="Folder of images…" />
+            <item android:id="@+id/action_add_link" android:title="Image from link…" />
+            <item android:id="@+id/action_paste" android:title="Paste" />
+            <item android:id="@+id/action_add_note" android:title="Note…" />
+        </menu>
+    </item>
+    <item android:title="Selection">
+        <menu>
+            <item android:id="@+id/action_select_all" android:title="Select all" />
+            <item android:id="@+id/action_deselect" android:title="Deselect" />
+            <item android:id="@+id/action_copy" android:title="Copy" />
+            <item android:id="@+id/action_duplicate" android:title="Duplicate" />
+            <item android:id="@+id/action_delete" android:title="Delete" />
+            <item android:id="@+id/action_front" android:title="Send to front" />
+            <item android:id="@+id/action_back" android:title="Send to back" />
+            <item android:id="@+id/action_flip_h" android:title="Flip horizontally" />
+            <item android:id="@+id/action_flip_v" android:title="Flip vertically" />
+            <item android:id="@+id/action_reset_transform" android:title="Reset transform" />
+            <item android:id="@+id/action_reset_rotation" android:title="Reset rotation" />
+            <item android:id="@+id/action_reset_crop" android:title="Reset cropping" />
+            <item android:id="@+id/action_grayscale" android:title="Toggle grayscale" />
+            <item android:id="@+id/action_smooth" android:title="Toggle bilinear sampling" />
+            <item android:id="@+id/action_opacity" android:title="Opacity…" />
+            <item android:id="@+id/action_lock_items" android:title="Toggle locked" />
+            <item android:id="@+id/action_group" android:title="Group" />
+            <item android:id="@+id/action_ungroup" android:title="Ungroup" />
+            <item android:id="@+id/action_comment" android:title="Comment…" />
+            <item android:id="@+id/action_edit_note" android:title="Edit note…" />
+            <item android:id="@+id/action_replace" android:title="Replace image…" />
+            <item android:id="@+id/action_open_source" android:title="Open source" />
+            <item android:id="@+id/action_crop_selected" android:title="Apply crop permanently" />
+        </menu>
+    </item>
+    <item android:title="Arrange">
+        <menu>
+            <item android:id="@+id/action_arrange_optimal" android:title="Optimal" />
+            <item android:id="@+id/action_arrange_name" android:title="By name" />
+            <item android:id="@+id/action_arrange_order" android:title="By order added" />
+            <item android:id="@+id/action_arrange_random" android:title="Randomly" />
+            <item
+                android:id="@+id/action_auto_arrange"
+                android:checkable="true"
+                android:title="Auto-arrange added images" />
+        </menu>
+    </item>
+    <item android:title="Align">
+        <menu>
+            <item android:id="@+id/action_align_left" android:title="Left" />
+            <item android:id="@+id/action_align_right" android:title="Right" />
+            <item android:id="@+id/action_align_top" android:title="Top" />
+            <item android:id="@+id/action_align_bottom" android:title="Bottom" />
+            <item android:id="@+id/action_align_row" android:title="In a row" />
+            <item android:id="@+id/action_align_column" android:title="In a column" />
+            <item android:id="@+id/action_align_stack" android:title="Stack" />
+        </menu>
+    </item>
+    <item android:title="Normalize">
+        <menu>
+            <item android:id="@+id/action_normalize_height" android:title="Height" />
+            <item android:id="@+id/action_normalize_width" android:title="Width" />
+            <item android:id="@+id/action_normalize_scale" android:title="Scale" />
+            <item android:id="@+id/action_normalize_size" android:title="Size" />
+            <item android:id="@+id/action_normalize_area" android:title="Area" />
+        </menu>
+    </item>
+    <item android:title="View">
+        <menu>
+            <item android:id="@+id/action_fit_all" android:title="Fit all" />
+            <item android:id="@+id/action_zoom_selection" android:title="Zoom to selection" />
+            <item android:id="@+id/action_reset_camera" android:title="Reset camera" />
+            <item android:id="@+id/action_reset_zoom" android:title="Reset zoom (100%)" />
+            <item android:id="@+id/action_slideshow" android:title="Slideshow" />
+            <item
+                android:id="@+id/action_canvas_grayscale"
+                android:checkable="true"
+                android:title="Grayscale canvas" />
+            <item android:title="Grid">
+                <menu>
+                    <group android:checkableBehavior="single">
+                        <item android:id="@+id/action_grid_none" android:title="None" />
+                        <item android:id="@+id/action_grid_lines" android:title="Lines" />
+                        <item android:id="@+id/action_grid_dots" android:title="Dots" />
+                    </group>
+                </menu>
+            </item>
+            <item
+                android:id="@+id/action_snap"
+                android:checkable="true"
+                android:title="Snap to grid" />
+            <item android:id="@+id/action_background" android:title="Background color…" />
+            <item android:id="@+id/action_pen" android:title="Pen color and width…" />
+        </menu>
+    </item>
+    <item android:title="Export">
+        <menu>
+            <item android:id="@+id/action_export_selected" android:title="Selected images" />
+            <item android:id="@+id/action_export_all" android:title="All images" />
+            <item android:id="@+id/action_export_selection_scene" android:title="Selection as one image" />
+            <item android:id="@+id/action_export_scene" android:title="Whole board as one image" />
+        </menu>
+    </item>
+    <item android:id="@+id/action_crop_all" android:title="Apply all crops permanently" />
+</menu>

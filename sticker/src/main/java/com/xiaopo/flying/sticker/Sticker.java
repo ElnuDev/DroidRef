@@ -46,6 +46,25 @@ public abstract class Sticker {
 
     private boolean visible = true;
 
+    private static long nextId = 1;
+
+    // Identifies the same logical item across undo snapshots (copies keep it).
+    private long id = nextId++;
+    // Monotonic insertion stamp for "arrange by order".
+    private long addedOrder = nextId;
+    private boolean grayscale;
+    private boolean smooth = true;
+    private boolean locked;
+    @IntRange(from = 0, to = 255)
+    private int opacity = 255;
+    private long groupId;
+    @Nullable
+    private String name;
+    @Nullable
+    private String comment;
+    @Nullable
+    private String source;
+
     public Sticker() {}
 
     public Sticker(Sticker other) {
@@ -55,8 +74,168 @@ public abstract class Sticker {
         this.croppedBounds = new RectF(other.croppedBounds);
         this.isFlippedHorizontally = other.isFlippedHorizontally;
         this.isFlippedVertically = other.isFlippedVertically;
+        this.visible = other.visible;
+        this.grayscale = other.grayscale;
+        this.smooth = other.smooth;
+        this.locked = other.locked;
+        this.opacity = other.opacity;
+        this.groupId = other.groupId;
+        this.name = other.name;
+        this.comment = other.comment;
+        this.source = other.source;
+        this.addedOrder = other.addedOrder;
 
         this.recalcFinalMatrix();
+    }
+
+    /**
+     * A copy that shares heavy data (bitmaps) but can be mutated independently.
+     * With {@code sameIdentity} the copy stands for the same item (undo history);
+     * otherwise it is a new item (duplicate).
+     */
+    @NonNull
+    public abstract Sticker copy(boolean sameIdentity);
+
+    protected void adoptIdentity(@NonNull Sticker other, boolean sameIdentity) {
+        if (sameIdentity) {
+            this.id = other.id;
+        } else {
+            this.addedOrder = nextId++;
+        }
+    }
+
+    public long getId() {
+        return id;
+    }
+
+    public long getAddedOrder() {
+        return addedOrder;
+    }
+
+    public void setAddedOrder(long addedOrder) {
+        this.addedOrder = addedOrder;
+        nextId = Math.max(nextId, addedOrder + 1);
+    }
+
+    public boolean isGrayscale() {
+        return grayscale;
+    }
+
+    public void setGrayscale(boolean grayscale) {
+        this.grayscale = grayscale;
+    }
+
+    /** Bilinear filtering; off gives nearest-neighbour sampling for pixel art. */
+    public boolean isSmooth() {
+        return smooth;
+    }
+
+    public void setSmooth(boolean smooth) {
+        this.smooth = smooth;
+    }
+
+    /** Locked items can be selected but not moved, scaled or cropped. */
+    public boolean isLocked() {
+        return locked;
+    }
+
+    public void setLocked(boolean locked) {
+        this.locked = locked;
+    }
+
+    public int getOpacity() {
+        return opacity;
+    }
+
+    public void setOpacity(@IntRange(from = 0, to = 255) int opacity) {
+        this.opacity = opacity;
+    }
+
+    public long getGroupId() {
+        return groupId;
+    }
+
+    public void setGroupId(long groupId) {
+        this.groupId = groupId;
+        nextId = Math.max(nextId, groupId + 1);
+    }
+
+    public static long newGroupId() {
+        return nextId++;
+    }
+
+    @Nullable
+    public String getName() {
+        return name;
+    }
+
+    public void setName(@Nullable String name) {
+        this.name = name;
+    }
+
+    @Nullable
+    public String getComment() {
+        return comment;
+    }
+
+    public void setComment(@Nullable String comment) {
+        this.comment = comment;
+    }
+
+    /** Where the item came from, e.g. the URL an image was downloaded from. */
+    @Nullable
+    public String getSource() {
+        return source;
+    }
+
+    public void setSource(@Nullable String source) {
+        this.source = source;
+    }
+
+    /** Whether the crop handles apply to this kind of item. */
+    public boolean isCroppable() {
+        return true;
+    }
+
+    /**
+     * Everything that undo needs to tell two states of this item apart.
+     */
+    @NonNull
+    public String stateSignature() {
+        float[] values = new float[9];
+        matrix.getValues(values);
+        StringBuilder sb = new StringBuilder();
+        sb.append(getClass().getSimpleName()).append(id);
+        for (float v : values) {
+            sb.append(',').append(v);
+        }
+        sb.append('|').append(croppedBounds).append(realBounds)
+                .append(isFlippedHorizontally).append(isFlippedVertically)
+                .append(visible).append(grayscale).append(smooth).append(locked)
+                .append(opacity).append(groupId).append(name).append(comment).append(source);
+        return sb.toString();
+    }
+
+    /**
+     * Axis-aligned bounds of the visible (cropped) area in world coordinates.
+     */
+    @NonNull
+    public RectF getWorldBounds() {
+        float[] src = getCroppedBoundPoints();
+        float[] dst = new float[8];
+        matrix.mapPoints(dst, src);
+        RectF r = new RectF(dst[0], dst[1], dst[0], dst[1]);
+        for (int i = 2; i < 8; i += 2) {
+            r.union(dst[i], dst[i + 1]);
+        }
+        return r;
+    }
+
+    /**
+     * Whether any part of the visible area overlaps the given world-space rectangle.
+     */
+    public boolean intersectsWorld(@NonNull RectF world) {
+        return RectF.intersects(getWorldBounds(), world);
     }
 
     public boolean isFlippedHorizontally() {

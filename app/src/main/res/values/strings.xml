@@ -1,3 +1,25 @@
 <resources>
   <string name="app_name">DroidRef</string>
+  <string name="menu">Menu</string>
+  <string name="hide_ui">Hide interface</string>
+  <string name="new_board">New board</string>
+  <string name="open">Open board</string>
+  <string name="save">Save</string>
+  <string name="save_as">Save as</string>
+  <string name="undo">Undo</string>
+  <string name="redo">Redo</string>
+  <string name="add_images">Add images</string>
+  <string name="paste">Paste</string>
+  <string name="add_note">Add note</string>
+  <string name="draw">Draw</string>
+  <string name="color_picker">Color picker</string>
+  <string name="arrange_optimal">Arrange optimally</string>
+  <string name="fit_all">Fit all in view</string>
+  <string name="duplicate">Duplicate</string>
+  <string name="delete">Delete</string>
+  <string name="lock_canvas">Lock canvas</string>
+  <string name="crop">Crop</string>
+  <string name="rotate">Rotate</string>
+  <string name="reset_crop">Reset crop</string>
+  <string name="reset_transform">Reset transform</string>
 </resources>

@@ -148,7 +148,7 @@
         });
 
         # Boots an emulator, installs the APK and launches it.
-        emulator = pkgs.androidenv.emulateApp {
+        emulatorUnpatched = pkgs.androidenv.emulateApp {
           name = "droidref-emulator";
           app = apk;
           platformVersion = emulatorPlatformVersion;
@@ -184,6 +184,17 @@
             "hw.keyboard" = "yes";
           };
         };
+
+        # emulateApp only installs the app if it's missing, so a rebuilt APK
+        # would never reach the reused AVD. Always reinstall (keeping app data;
+        # the fixed debug key in app/ makes the signatures match).
+        emulator = pkgs.runCommand "droidref-emulator" { meta.mainProgram = "run-test-emulator"; } ''
+          cp -r ${emulatorUnpatched} $out
+          chmod -R u+w $out
+          substituteInPlace $out/bin/run-test-emulator \
+            --replace-fail 'if [ -z "xyz.ruin.droidref" ] ||' 'if true ||' \
+            --replace-fail ' install "$appPath"' ' install -r "$appPath"'
+        '';
       in
       {
         packages = {

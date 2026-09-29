@@ -89,6 +89,14 @@ public class StickerView extends FrameLayout {
 
     private BitmapStickerIcon currentIcon;
 
+    @Nullable
+    private StickerViewModel viewModel;
+    private final BoardRenderer renderer;
+    private final Paint grayscalePaint = new Paint();
+    // Snapshot of the board used while picking colors.
+    @Nullable
+    private Bitmap pickCapture;
+
     public StickerView(Context context) {
         this(context, null);
     }
@@ -130,6 +138,28 @@ public class StickerView extends FrameLayout {
         }
 
         updateIcons();
+
+        ColorMatrix grayscale = new ColorMatrix();
+        grayscale.setSaturation(0f);
+        grayscalePaint.setColorFilter(new ColorMatrixColorFilter(grayscale));
+        renderer = new BoardRenderer(context);
+        setWillNotDraw(false);
+    }
+
+    public void setViewModel(@Nullable StickerViewModel viewModel) {
+        this.viewModel = viewModel;
+        if (viewModel != null && getWidth() > 0) {
+            viewModel.onViewSizeChanged(getWidth(), getHeight());
+        }
+        invalidate();
+    }
+
+    @Override
+    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+        super.onSizeChanged(w, h, oldw, oldh);
+        if (viewModel != null) {
+            viewModel.onViewSizeChanged(w, h);
+        }
     }
 
     public void configDefaultIcons() {
@@ -182,11 +212,77 @@ public class StickerView extends FrameLayout {
 
     @Override
     protected void dispatchDraw(Canvas canvas) {
+        renderBoard(canvas, true);
         super.dispatchDraw(canvas);
-        drawStickers(canvas);
+        if (viewModel != null) {
+            renderer.drawOverlay(canvas, viewModel, stickers);
+        }
+        drawHandles(canvas);
     }
 
-    private void drawBorder(Canvas canvas, float[] bitmapPoints, int color, int width) {
+    /** Background, grid and items; everything a color picker or export should see. */
+    private void renderBoard(Canvas canvas, boolean withGrid) {
+        if (viewModel != null) {
+            canvas.drawColor(viewModel.getBackgroundColor().getValue());
+            if (withGrid) {
+                renderer.drawGrid(canvas, viewModel, getWidth(), getHeight());
+            }
+        }
+        boolean grayscale = viewModel != null && Boolean.TRUE.equals(viewModel.getCanvasGrayscale().getValue());
+        int save = grayscale ? canvas.saveLayer(null, grayscalePaint) : -1;
+        drawStickers(canvas);
+        if (save >= 0) {
+            canvas.restoreToCount(save);
+        }
+    }
+
+    public void beginColorPick() {
+        endColorPick();
+        if (getWidth() <= 0 || getHeight() <= 0) {
+            return;
+        }
+        pickCapture = Bitmap.createBitmap(getWidth(), getHeight(), Bitmap.Config.ARGB_8888);
+        renderBoard(new Canvas(pickCapture), false);
+    }
+
+    public int sampleColor(float x, float y) {
+        if (pickCapture == null) {
+            return Color.TRANSPARENT;
+        }
+        int px = Math.max(0, Math.min(pickCapture.getWidth() - 1, (int) x));
+        int py = Math.max(0, Math.min(pickCapture.getHeight() - 1, (int) y));
+        return pickCapture.getPixel(px, py);
+    }
+
+    public void endColorPick() {
+        if (pickCapture != null) {
+            pickCapture.recycle();
+            pickCapture = null;
+        }
+    }
+
+    protected void drawStickers(Canvas canvas) {
+        for (int i = 0; i < stickers.size(); i++) {
+            Sticker sticker = stickers.get(i);
+            if (sticker != null && sticker.isVisible()) {
+                sticker.draw(canvas);
+            }
+        }
+    }
+
+    /** Corner handles of the single selected item. */
+    private void drawHandles(Canvas canvas) {
+        if (handlingSticker == null || isLocked || !showIcons || !handlingSticker.isVisible()
+                || handlingSticker.isLocked() || !stickers.contains(handlingSticker)) {
+            return;
+        }
+        if (viewModel != null && viewModel.getTool().getValue() != StickerViewModel.Tool.SELECT) {
+            return;
+        }
+        if (isCropActive && !handlingSticker.isCroppable()) {
+            return;
+        }
+        getStickerPointsCropped(handlingSticker, bitmapPoints);
         float x1 = bitmapPoints[0];
         float y1 = bitmapPoints[1];
         float x2 = bitmapPoints[2];
@@ -196,82 +292,29 @@ public class StickerView extends FrameLayout {
         float x4 = bitmapPoints[6];
         float y4 = bitmapPoints[7];
 
-        canvas.save();
-        canvas.concat(canvasMatrix.getMatrix());
-        if (showBorder) {
-            canvas.drawLine(x1, y1, x2, y2, borderPaint);
-            canvas.drawLine(x1, y1, x3, y3, borderPaint);
-            canvas.drawLine(x2, y2, x4, y4, borderPaint);
-            canvas.drawLine(x4, y4, x3, y3, borderPaint);
-        }
-
         float rotation = StickerMath.calculateRotation(x4, y4, x3, y3);
-        float roundedRotation = roundOff(rotation);
 
-        canvas.restore();
-    }
+        for (int i = 0; i < activeIcons.get().size(); i++) {
+            BitmapStickerIcon icon = activeIcons.get().get(i);
+            switch (icon.getPosition()) {
+                case BitmapStickerIcon.LEFT_TOP:
+                    configIconMatrix(icon, x1, y1, rotation);
+                    break;
 
-    protected void drawStickers(Canvas canvas) {
-        for (int i = 0; i < stickers.size(); i++) {
-            Sticker sticker = stickers.get(i);
-            if (sticker != null) {
-                if (sticker.isVisible()) {
-                    sticker.draw(canvas);
-//                    if (isCropActive && handlingSticker != sticker) {
-//                        getStickerPoints(sticker, bitmapPoints);
-//                        drawBorder(canvas, bitmapPoints, R.color.enabled, 4);
-//                    }
-                }
+                case BitmapStickerIcon.RIGHT_TOP:
+                    configIconMatrix(icon, x2, y2, rotation);
+                    break;
+
+                case BitmapStickerIcon.LEFT_BOTTOM:
+                    configIconMatrix(icon, x3, y3, rotation);
+                    break;
+
+                case BitmapStickerIcon.RIGHT_BOTTOM:
+                    configIconMatrix(icon, x4, y4, rotation);
+                    break;
             }
+            icon.draw(canvas, iconPaint);
         }
-
-        if (handlingSticker != null && !isLocked && (showBorder || showIcons)) {
-            getStickerPoints(handlingSticker, bitmapPoints);
-            if (handlingSticker != null && handlingSticker.isVisible()) {
-                drawBorder(canvas, bitmapPoints, dashColor, 1);
-            }
-
-            //draw icons
-            if (showIcons) {
-                getStickerPointsCropped(handlingSticker, bitmapPoints);
-                float x1 = bitmapPoints[0];
-                float y1 = bitmapPoints[1];
-                float x2 = bitmapPoints[2];
-                float y2 = bitmapPoints[3];
-                float x3 = bitmapPoints[4];
-                float y3 = bitmapPoints[5];
-                float x4 = bitmapPoints[6];
-                float y4 = bitmapPoints[7];
-
-                float rotation = StickerMath.calculateRotation(x4, y4, x3, y3);
-
-                for (int i = 0; i < activeIcons.get().size(); i++) {
-                    BitmapStickerIcon icon = activeIcons.get().get(i);
-                    switch (icon.getPosition()) {
-                        case BitmapStickerIcon.LEFT_TOP:
-                            configIconMatrix(icon, x1, y1, rotation);
-                            break;
-
-                        case BitmapStickerIcon.RIGHT_TOP:
-                            configIconMatrix(icon, x2, y2, rotation);
-                            break;
-
-                        case BitmapStickerIcon.LEFT_BOTTOM:
-                            configIconMatrix(icon, x3, y3, rotation);
-                            break;
-
-                        case BitmapStickerIcon.RIGHT_BOTTOM:
-                            configIconMatrix(icon, x4, y4, rotation);
-                            break;
-                    }
-                    icon.draw(canvas, iconPaint);
-                }
-            }
-        }
-    }
-
-    private float roundOff(float rotation) {
-        return Math.round(rotation * 100f) / 100f;
     }
 
     public static float midValue(float n1, float n2) {

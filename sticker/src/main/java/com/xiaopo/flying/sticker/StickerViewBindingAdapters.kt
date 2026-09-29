@@ -116,6 +116,12 @@ object StickerViewBindingAdapters {
     }
 
     @JvmStatic
+    @BindingAdapter("viewModel")
+    fun setViewModel(view: StickerView, value: StickerViewModel?) {
+        view.setViewModel(value)
+    }
+
+    @JvmStatic
     @BindingAdapter("gestureDetector")
     fun setGestureDetector(view: StickerView, value: GestureListener?) {
         view.setGestureDetector(value)

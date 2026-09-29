@@ -1,23 +1,32 @@
 package com.xiaopo.flying.sticker
 
+import android.animation.ValueAnimator
 import android.annotation.SuppressLint
+import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.PointF
 import android.graphics.RectF
 import android.os.SystemClock
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
+import android.view.animation.DecelerateInterpolator
 import androidx.annotation.IntDef
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import com.xiaopo.flying.sticker.StickerView.Flip
-import com.xiaopo.flying.sticker.StickerView.OnStickerAreaTouchListener
-import timber.log.Timber
-import kotlin.math.*
+import kotlin.math.abs
+import kotlin.math.hypot
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.pow
+import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 open class StickerViewModel :
     ViewModel() {
+    /** Canvas lock: everything is frozen and touches only pan and zoom. */
     var isLocked: MutableLiveData<Boolean> = MutableLiveData(false)
     var mustLockToPan: MutableLiveData<Boolean> = MutableLiveData(false)
     var isCropActive: MutableLiveData<Boolean> = MutableLiveData(false)
@@ -30,6 +39,8 @@ open class StickerViewModel :
     var stickers: MutableLiveData<ArrayList<Sticker>> = MutableLiveData(ArrayList())
     var icons: MutableLiveData<ArrayList<BitmapStickerIcon>> = MutableLiveData(ArrayList())
     var activeIcons: MutableLiveData<List<BitmapStickerIcon>> = MutableLiveData(ArrayList(4))
+
+    /** The selected item when exactly one is selected; it gets the corner handles. */
     var handlingSticker: MutableLiveData<Sticker?> = MutableLiveData(null)
 
     var gestureListener: MutableLiveData<GestureListener> = MutableLiveData()
@@ -38,23 +49,93 @@ open class StickerViewModel :
         gestureListener.value = GestureListener(this)
     }
 
+    enum class Tool { SELECT, DRAW, PICK_COLOR }
+    enum class GridMode { NONE, LINES, DOTS }
+    enum class Arrangement { OPTIMAL, NAME, ORDER, RANDOM }
+    enum class Alignment { LEFT, RIGHT, TOP, BOTTOM, ROW, COLUMN, STACK }
+    enum class Normalization { HEIGHT, WIDTH, SCALE, SIZE, AREA }
+
+    val tool = MutableLiveData(Tool.SELECT)
+    val gridMode = MutableLiveData(GridMode.NONE)
+    val snapToGrid = MutableLiveData(false)
+    val canvasGrayscale = MutableLiveData(false)
+    val backgroundColor = MutableLiveData(DEFAULT_BACKGROUND)
+
+    /** Arrange a batch of newly added images instead of piling them up. */
+    val autoArrange = MutableLiveData(true)
+    var penColor: Int = Color.WHITE
+
+    /** Pen width in screen pixels at the time of drawing. */
+    var penWidth: Float = 8f
+
+    /** Selected items, in the order they were selected. */
+    val selection = LinkedHashSet<Sticker>()
+    val selectionCount = MutableLiveData(0)
+
+    val history = History()
+    val canUndo = MutableLiveData(false)
+    val canRedo = MutableLiveData(false)
+
+    /** Bumped whenever the board changes, so the activity knows to autosave. */
+    val revision = MutableLiveData(0L)
+
+    init {
+        history.onChanged = {
+            canUndo.value = history.canUndo
+            canRedo.value = history.canRedo
+            revision.value = revision.value!! + 1
+        }
+    }
+
+    /** Callbacks that need the activity (dialogs etc.). */
+    interface BoardListener {
+        fun onEditNote(note: NoteSticker)
+        fun onColorPicked(color: Int)
+        fun onMessage(message: String)
+    }
+
+    var boardListener: BoardListener? = null
+
+    /** Location of the open board (a document URI), if it has been saved. */
     var currentFileName: String? = null
 
-    private val onStickerAreaTouchListener: OnStickerAreaTouchListener? = null
+    /** Set once the activity has restored the previous session into this model. */
+    var sessionStarted = false
 
     lateinit var stickerOperationListener: StickerView.OnStickerOperationListener
 
+    /** Screen space covered by toolbars, kept clear when framing items. */
+    var frameInsetTop = 0f
+    var frameInsetBottom = 0f
+
+    var viewWidth = 0
+        private set
+    var viewHeight = 0
+        private set
+    private val pendingPlacement = ArrayList<Sticker>()
+    private var pendingArrange = false
+
+    // Overlay state drawn by StickerView.
+    /** Rubber-band selection rectangle, in screen coordinates. */
+    var marquee: RectF? = null
+        private set
+
+    /** World-space points of the stroke being drawn. */
+    var strokePoints: FloatArray? = null
+        private set
+    private var strokeSize = 0
+
+    /** Where the color picker is sampling, in screen coordinates, and what it found. */
+    var pickPoint: PointF? = null
+        private set
+    var pickedColor: Int = Color.TRANSPARENT
+        private set
+
     private val stickerWorldMatrix = Matrix()
-    private val stickerScreenMatrix = Matrix()
     private val moveMatrix = Matrix()
     private val point = FloatArray(2)
-    private val currentCenterPoint = PointF()
     private val tmp = FloatArray(2)
-    private var pointerId = -1
     private var midPoint = PointF()
-
-    private val DEFAULT_MIN_CLICK_DELAY_TIME = 200
-    private var minClickDelayTime = DEFAULT_MIN_CLICK_DELAY_TIME
 
     //the first point down position
     private var downX = 0f
@@ -64,9 +145,6 @@ open class StickerViewModel :
 
     private var oldDistance = 0f
     private var oldRotation = 0f
-    private var previousRotation = 0f
-
-    private var lastClickTime: Long = 0
 
     @IntDef(
         ActionMode.NONE,
@@ -97,342 +175,720 @@ open class StickerViewModel :
     @SuppressLint("ClickableViewAccessibility")
     val onTouchListener = View.OnTouchListener { v, event -> onTouchEvent(v as StickerView, event) }
 
-    fun addSticker(sticker: Sticker) {
-        addSticker(sticker, Sticker.Position.CENTER)
-    }
+    private val items get() = stickers.value!!
 
-    fun addSticker(sticker: Sticker, position: Int) {
-        sticker.setCanvasMatrix(canvasMatrix.value!!.getMatrix())
-        sticker.recalcFinalMatrix()
-        stickers.value!!.add(sticker)
-        handlingSticker.value = sticker
-        stickerOperationListener.onStickerAdded(sticker, position)
-    }
-
-    fun resetView() {
-        canvasMatrix.value!!.setMatrix(Matrix())
-        updateCanvasMatrix()
-    }
-
-    fun updateCanvasMatrix() {
-        for (i in stickers.value!!.indices) {
-            val sticker: Sticker = stickers.value!![i]
-            sticker.setCanvasMatrix(canvasMatrix.value!!.getMatrix())
-        }
-        stickerOperationListener.onInvalidateView()
-    }
-
-    fun removeCurrentSticker(): Boolean {
-        if (handlingSticker.value != null) {
-            return removeSticker(handlingSticker.value!!)
-        } else {
-            return false
-        }
-    }
-
-    fun removeSticker(sticker: Sticker): Boolean {
-        if (stickers.value!!.contains(sticker)) {
-            stickers.value!!.remove(sticker)
-            stickerOperationListener.onStickerDeleted(sticker)
-            if (handlingSticker.value == sticker) {
-                handlingSticker.value = null
-            }
-            stickerOperationListener.onInvalidateView()
-            return true
-        } else {
-            Timber.d("remove: the sticker is not in this StickerView")
-            return false
-        }
-    }
-
-    fun removeAllStickers() {
-        stickers.value?.clear()
-        if (handlingSticker.value != null) {
-            handlingSticker.value!!.release()
-            handlingSticker.value = null
-        }
-        currentIcon.value = null
-        stickerOperationListener.onInvalidateView()
-    }
-
-    fun resetCurrentStickerCropping() {
-        handlingSticker.value?.let(this::resetStickerCropping)
-    }
-
-    private fun resetStickerCropping(sticker: Sticker) {
-        if (isLocked.value != true) {
-            sticker.setCroppedBounds(RectF(sticker.getRealBounds()))
+    private fun invalidate() {
+        if (this::stickerOperationListener.isInitialized) {
             stickerOperationListener.onInvalidateView()
         }
     }
 
-    fun resetCurrentStickerZoom() {
-        handlingSticker.value?.let(this::resetStickerZoom)
+    // region Coordinates
+
+    private val inverse = Matrix()
+
+    fun screenToWorld(x: Float, y: Float): PointF {
+        canvasMatrix.value!!.invert(inverse)
+        val pts = floatArrayOf(x, y)
+        inverse.mapPoints(pts)
+        return PointF(pts[0], pts[1])
     }
 
-    private fun resetStickerZoom(sticker: Sticker) {
-        if (isLocked.value != true) {
-            val temp2 = floatArrayOf(sticker.centerPoint.x, sticker.centerPoint.y)
-            sticker.matrix.mapPoints(temp2)
-            sticker.matrix.reset()
-            sticker.matrix.postTranslate(
-                temp2[0] - sticker.width / 2f,
-                temp2[1] - sticker.height / 2f
-            )
-            sticker.recalcFinalMatrix()
-            stickerOperationListener.onInvalidateView()
-        }
-    }
-
-    fun resetCurrentStickerRotation() {
-        handlingSticker.value?.let(this::resetStickerRotation)
-    }
-
-    private fun resetStickerRotation(sticker: Sticker) {
-        val rotation = if (sticker.isFlippedVertically) sticker.currentAngle;
-            else -sticker.currentAngle
-        sticker.matrix.postRotate(rotation, sticker.mappedCenterPoint.x,
-            sticker.mappedCenterPoint.y)
-        stickerOperationListener.onInvalidateView()
-    }
-
-
-    private fun handleCanvasMotion(view: StickerView, event: MotionEvent): Boolean {
-        handlingSticker.value = null
-        currentIcon.value = null
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                if (!onTouchDownCanvas(event)) {
-                    return false
-                }
-                pointerId = event.getPointerId(0)
-            }
-            MotionEvent.ACTION_POINTER_DOWN -> {
-                for (i in 0 until event.pointerCount) {
-                    if (event.getPointerId(i) != pointerId) {
-                        calculateDown(event)
-                        pointerId = event.getPointerId(i)
-                        break
-                    }
-                }
-                oldDistance = StickerMath.calculateDistance(event)
-                oldRotation = StickerMath.calculateRotation(event)
-                midPoint = calculateMidPoint(event)
-                stickerWorldMatrix.set(canvasMatrix.value!!.getMatrix())
-                currentMode.value = ActionMode.CANVAS_ZOOM_WITH_TWO_FINGER
-            }
-            MotionEvent.ACTION_MOVE -> {
-                for (i in 0 until event.pointerCount) {
-                    if (event.getPointerId(i) != pointerId) {
-                        calculateDown(event)
-                        pointerId = event.getPointerId(i)
-                        break
-                    }
-                }
-                handleMoveActionCanvas(event)
-            }
-            MotionEvent.ACTION_UP -> {
-                onTouchUpCanvas(event)
-            }
-            MotionEvent.ACTION_POINTER_UP -> {
-                if (currentMode.value == ActionMode.CANVAS_ZOOM_WITH_TWO_FINGER) {
-                    pointerId = -1
-                    if (!onTouchDownCanvas(event)) {
-                        return false
-                    }
-                } else {
-                    onTouchUpCanvas(event)
-                }
-            }
-        }
-        stickerOperationListener.onInvalidateView()
-        return true
-    }
-
-    /**
-     * @param event MotionEvent received from [)][.onTouchEvent]
-     */
-    protected fun onTouchDownCanvas(event: MotionEvent): Boolean {
-        currentMode.value = ActionMode.CANVAS_DRAG
-        calculateDown(event)
-        midPoint = calculateMidPoint()
-        oldDistance = StickerMath.calculateDistance(midPoint.x, midPoint.y, downX, downY)
-        oldRotation = StickerMath.calculateRotation(midPoint.x, midPoint.y, downX, downY)
-        stickerWorldMatrix.set(canvasMatrix.value!!.getMatrix())
-        return true
-    }
-
-    protected fun onTouchUpCanvas(event: MotionEvent) {
-        val currentTime = SystemClock.uptimeMillis()
-        pointerId = -1
-        currentMode.value = ActionMode.NONE
-        lastClickTime = currentTime
-    }
-
-    protected fun handleMoveActionCanvas(event: MotionEvent) {
-        when (currentMode.value) {
-            ActionMode.CANVAS_DRAG -> {
-                moveMatrix.set(stickerWorldMatrix)
-                moveMatrix.postTranslate(event.x - downX, event.y - downY)
-                canvasMatrix.value!!.setMatrix(moveMatrix)
-                updateCanvasMatrix()
-            }
-            ActionMode.CANVAS_ZOOM_WITH_TWO_FINGER -> {
-                val newDistance = StickerMath.calculateDistance(event)
-                //float newRotation = StickerMath.calculateRotation(event);
-                moveMatrix.set(stickerWorldMatrix)
-                moveMatrix.postScale(
-                    newDistance / oldDistance, newDistance / oldDistance, midPoint.x,
-                    midPoint.y
-                )
-                //moveMatrix.postRotate(newRotation - oldRotation, midPoint.x, midPoint.y);
-                canvasMatrix.value!!.setMatrix(moveMatrix)
-                updateCanvasMatrix()
-            }
-        }
-    }
-
-    private fun isMovingCanvas(): Boolean {
-        return currentMode.value == ActionMode.CANVAS_DRAG || currentMode.value == ActionMode.CANVAS_ZOOM_WITH_TWO_FINGER
-    }
-
-    @SuppressLint("ClickableViewAccessibility")
-    fun onTouchEvent(view: StickerView, event: MotionEvent): Boolean {
-        if (isLocked.value == true || isMovingCanvas()) {
-            return handleCanvasMotion(view, event)
-        }
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                //                Timber.d("MotionEvent.ACTION_DOWN event__: %s", event.toString());
-                if (onStickerAreaTouchListener != null) {
-                    onStickerAreaTouchListener.onStickerAreaTouch()
-                }
-                if (!onTouchDown(view, event)) {
-                    return if (mustLockToPan.value != true) {
-                        handleCanvasMotion(view, event)
-                    } else false
-                }
-            }
-            MotionEvent.ACTION_POINTER_DOWN -> {
-            }
-            MotionEvent.ACTION_MOVE -> {
-                handleMoveAction(view, event)
-            }
-            MotionEvent.ACTION_UP -> onTouchUp(view, event)
-            MotionEvent.ACTION_POINTER_UP -> if (currentMode.value == ActionMode.ZOOM_WITH_TWO_FINGER && handlingSticker.value != null) {
-                stickerOperationListener.onStickerZoomFinished(handlingSticker.value!!)
-                if (!onTouchDown(view, event)) {
-                    return if (mustLockToPan.value != true) {
-                        handleCanvasMotion(view, event)
-                    } else false
-                }
-                currentMode.value = ActionMode.DRAG
-            } else {
-                currentMode.value = ActionMode.NONE
-            }
-        }
-        stickerOperationListener.onInvalidateView()
-        return true
-    }
-
-    /**
-     * @param event MotionEvent received from [)][.onTouchEvent]
-     */
-    protected fun onTouchDown(view: StickerView, event: MotionEvent): Boolean {
-        currentMode.value = ActionMode.DRAG
-        calculateDown(event)
-        midPoint = StickerMath.calculateMidPoint(handlingSticker.value)
-        oldDistance = StickerMath.calculateDistance(midPoint.x, midPoint.y, downX, downY)
-        oldRotation = StickerMath.calculateRotation(midPoint.x, midPoint.y, downX, downY)
-        currentIcon.value = findCurrentIconTouched()
-
-        // HACK if application logic is really meant to be handled in the ViewModel, how do you
-        // communicate from the View to the ViewModel? There can't be a GestureDetector in the
-        // ViewModel because it retains the activity's context.
-        view.detectIconGesture(event)
-
-        if (currentIcon.value != null) {
-            currentMode.value = ActionMode.ICON
-            currentIcon.value!!.onActionDown(view, this, event)
-            // Timber.d("current_icon: %s", currentIcon.getDrawableName());
-        } else {
-            handlingSticker.value = findHandlingSticker()
-        }
-
-       handlingSticker.value?.let {
-            stickerWorldMatrix.set(it.getMatrix())
-            stickerScreenMatrix.set(it.getFinalMatrix())
-            if (bringToFrontCurrentSticker.value == true) {
-                stickers.value!!.remove(it)
-                stickers.value!!.add(it)
-            }
-            stickerOperationListener.onStickerTouchedDown(it)
-        }
-        return currentIcon.value != null || handlingSticker.value != null
-    }
-
-    protected fun onTouchUp(view: StickerView, event: MotionEvent) {
-        val touchSlop = ViewConfiguration.get(view.context).scaledTouchSlop
-
-        val currentTime = SystemClock.uptimeMillis()
-        if (currentMode.value == ActionMode.ICON && currentIcon.value != null && handlingSticker.value != null) {
-            currentIcon.value!!.onActionUp(view, this, event)
-            // Timber.d("current_icon: %s", currentIcon.getDrawableName());
-        }
-        if (currentMode.value == ActionMode.DRAG && Math.abs(event.x - downX) < touchSlop && Math.abs(
-                event.y - downY
-            ) < touchSlop && handlingSticker.value != null
-        ) {
-            currentMode.value = ActionMode.CLICK
-                stickerOperationListener.onStickerClicked(handlingSticker.value!!)
-            if (currentTime - lastClickTime < minClickDelayTime) {
-                stickerOperationListener.onStickerDoubleTapped(handlingSticker.value!!)
-            }
-        }
-        if (currentMode.value == ActionMode.DRAG && handlingSticker.value != null) {
-              stickerOperationListener.onStickerDragFinished(handlingSticker.value!!)
-        }
-        currentMode.value = ActionMode.NONE
-        lastClickTime = currentTime
-    }
-
-    private fun screenToWorld(vx: Float, vy: Float): PointF {
-        val vec = floatArrayOf(vx, vy)
-        val a = Matrix()
-        canvasMatrix.value!!.invert(a)
-        a.mapVectors(vec)
+    private fun screenToWorldVector(dx: Float, dy: Float): PointF {
+        canvasMatrix.value!!.invert(inverse)
+        val vec = floatArrayOf(dx, dy)
+        inverse.mapVectors(vec)
         return PointF(vec[0], vec[1])
     }
 
-    protected fun handleMoveAction(view: StickerView, event: MotionEvent) {
-        when (currentMode.value) {
-            ActionMode.NONE, ActionMode.CLICK -> {
+    /** Screen pixels per world unit. */
+    fun canvasScale(): Float = canvasMatrix.value!!.getMatrix().mapRadius(1f)
+
+    /** The part of the world currently on screen. */
+    fun visibleWorld(): RectF {
+        canvasMatrix.value!!.invert(inverse)
+        val r = RectF(0f, 0f, viewWidth.toFloat(), viewHeight.toFloat())
+        inverse.mapRect(r)
+        return r
+    }
+
+    fun onViewSizeChanged(width: Int, height: Int) {
+        viewWidth = width
+        viewHeight = height
+        if (width > 0 && height > 0 && pendingPlacement.isNotEmpty()) {
+            val pending = ArrayList(pendingPlacement)
+            pendingPlacement.clear()
+            place(pending, pendingArrange)
+            invalidate()
+        }
+    }
+
+    // endregion
+
+    // region Adding and removing
+
+    fun addSticker(sticker: Sticker) {
+        addStickers(listOf(sticker))
+    }
+
+    fun addSticker(sticker: Sticker, @Suppress("UNUSED_PARAMETER") position: Int) {
+        addSticker(sticker)
+    }
+
+    /**
+     * Adds items to the board around the middle of the screen, arranging a batch
+     * so that dozens of images don't end up in a pile.
+     */
+    fun addStickers(added: List<Sticker>, arrange: Boolean = autoArrange.value == true) {
+        if (added.isEmpty()) return
+        history.record(items) {
+            added.forEach {
+                it.setCanvasMatrix(canvasMatrix.value!!.getMatrix())
+                items.add(it)
             }
-            ActionMode.DRAG -> if (handlingSticker.value != null) {
-                moveMatrix.set(stickerWorldMatrix)
-                val vec = screenToWorld(event.x - downX, event.y - downY)
-                moveMatrix.postTranslate(vec.x, vec.y)
-                handlingSticker.value!!.setMatrix(moveMatrix)
-                if (constrained.value == true) {
-                    constrainSticker(view, handlingSticker.value!!)
+            if (viewWidth == 0 || viewHeight == 0) {
+                pendingPlacement.addAll(added)
+                pendingArrange = arrange
+            } else {
+                place(added, arrange)
+            }
+        }
+        setSelection(added)
+    }
+
+    private fun place(added: List<Sticker>, arrange: Boolean) {
+        val center = screenToWorld(viewWidth / 2f, viewHeight / 2f)
+        if (arrange && added.size > 1) {
+            val bounds = added.map { it.worldBounds }
+            val gap = gapFor(bounds)
+            val boxes = bounds.map { Arranger.Box(it.width(), it.height()) }
+            val positions = Arranger.optimal(boxes, gap, viewAspect())
+            val extent = Arranger.extent(boxes, positions)
+            var originX = center.x - extent.w / 2
+            var originY = center.y - extent.h / 2
+            // Don't bury what's already on the board: if the block would cover
+            // existing items, put it to their right instead.
+            val existing = items.filter { it !in added }
+            if (existing.isNotEmpty()) {
+                val block = RectF(originX, originY, originX + extent.w, originY + extent.h)
+                if (existing.any { it.intersectsWorld(block) }) {
+                    val occupied = unionBounds(existing)
+                    originX = occupied.right + gap * 4
+                    originY = occupied.top
                 }
-                stickerOperationListener.onStickerMoved(handlingSticker.value!!)
             }
-            ActionMode.ZOOM_WITH_TWO_FINGER -> if (handlingSticker.value != null) {
-                val newDistance = StickerMath.calculateDistanceScaled(event, canvasMatrix.value!!.getMatrix())
-                val newRotation = StickerMath.calculateRotation(event)
-                moveMatrix.set(stickerWorldMatrix)
-                moveMatrix.postScale(
-                    newDistance / oldDistance, newDistance / oldDistance, midPoint.x,
-                    midPoint.y
+            added.forEachIndexed { i, sticker ->
+                sticker.matrix.postTranslate(
+                    originX + positions[i].x - bounds[i].left,
+                    originY + positions[i].y - bounds[i].top
                 )
-                if (rotationEnabled.value == true) {
-                    moveMatrix.postRotate(newRotation - oldRotation, midPoint.x, midPoint.y)
-                }
-                handlingSticker.value!!.setMatrix(moveMatrix)
+                sticker.recalcFinalMatrix()
             }
-            ActionMode.ICON -> if (handlingSticker.value != null && currentIcon.value != null) {
-                currentIcon.value!!.onActionMove(view, this, event)
+        } else {
+            val step = min(viewWidth, viewHeight) * 0.04f / canvasScale()
+            added.forEachIndexed { i, sticker ->
+                val b = sticker.worldBounds
+                val offset = (i - (added.size - 1) / 2f) * step
+                sticker.matrix.postTranslate(
+                    center.x - b.centerX() + offset,
+                    center.y - b.centerY() + offset
+                )
+                sticker.recalcFinalMatrix()
+            }
+        }
+        val union = unionBounds(added)
+        if (!visibleWorld().contains(union)) {
+            fitTo(added)
+        }
+    }
+
+    fun addNote(note: NoteSticker) {
+        // Readable at the current zoom, like the text size on screen.
+        val scale = 1f / canvasScale()
+        note.matrix.setScale(scale, scale)
+        addStickers(listOf(note), arrange = false)
+    }
+
+    fun resetView() {
+        animateCanvasTo(Matrix())
+    }
+
+    fun updateCanvasMatrix() {
+        val m = canvasMatrix.value!!.getMatrix()
+        for (sticker in items) {
+            sticker.setCanvasMatrix(m)
+        }
+        invalidate()
+    }
+
+    fun removeCurrentSticker(): Boolean {
+        val sticker = handlingSticker.value ?: return false
+        return removeSticker(sticker)
+    }
+
+    fun removeSticker(sticker: Sticker): Boolean {
+        if (!items.contains(sticker)) {
+            return false
+        }
+        history.record(items) {
+            items.remove(sticker)
+        }
+        selection.remove(sticker)
+        onSelectionChanged()
+        stickerOperationListener.onStickerDeleted(sticker)
+        return true
+    }
+
+    fun removeAllStickers() {
+        items.clear()
+        selection.clear()
+        onSelectionChanged()
+        currentIcon.value = null
+        history.clear()
+        invalidate()
+    }
+
+    /** Replaces the board, e.g. after loading a file. */
+    fun loadBoard(board: StickerViewSerializer.Board) {
+        removeAllStickers()
+        items.addAll(board.stickers)
+        canvasMatrix.value!!.setMatrix(board.canvasMatrix)
+        canvasMatrix.value!!.notifyChange()
+        updateCanvasMatrix()
+    }
+
+    // endregion
+
+    // region Selection
+
+    private fun groupOf(sticker: Sticker): List<Sticker> =
+        if (sticker.groupId == 0L) listOf(sticker) else items.filter { it.groupId == sticker.groupId }
+
+    fun setSelection(selected: Collection<Sticker>) {
+        selection.clear()
+        selected.forEach { sticker -> groupOf(sticker).forEach { selection.add(it) } }
+        onSelectionChanged()
+    }
+
+    fun selectAll() = setSelection(items)
+
+    fun clearSelection() = setSelection(emptyList())
+
+    private fun onSelectionChanged() {
+        selection.retainAll(items.toSet())
+        val single = selection.singleOrNull()
+        if (handlingSticker.value !== single) {
+            handlingSticker.value = single
+        }
+        if (selectionCount.value != selection.size) {
+            selectionCount.value = selection.size
+        }
+        invalidate()
+    }
+
+    /** Selected items in stacking order, or everything if nothing is selected. */
+    fun targets(): List<Sticker> =
+        if (selection.isEmpty()) ArrayList(items) else items.filter { it in selection }
+
+    fun selected(): List<Sticker> = items.filter { it in selection }
+
+    // endregion
+
+    // region Undo
+
+    fun undo() = restoreHistory { history.undo(items) }
+
+    fun redo() = restoreHistory { history.redo(items) }
+
+    private fun restoreHistory(step: () -> Boolean) {
+        val selectedIds = selection.map { it.id }.toSet()
+        if (!step()) return
+        updateCanvasMatrix()
+        setSelection(items.filter { it.id in selectedIds })
+    }
+
+    /** Runs a board change as a single undo step and redraws. */
+    fun <T> change(block: () -> T): T {
+        val result = history.record(items, block)
+        items.forEach { it.recalcFinalMatrix() }
+        onSelectionChanged()
+        return result
+    }
+
+    // endregion
+
+    // region Touch handling
+
+    private enum class Gesture {
+        NONE, ICON, PRESS_ITEM, MOVE_ITEMS, PINCH_ITEMS, PRESS_CANVAS, PAN, PINCH_CANVAS, MARQUEE, DRAW, PICK
+    }
+
+    private var gesture = Gesture.NONE
+    private var activePointerId = -1
+    private var pressed: Sticker? = null
+    private var selectionBeforePress: Set<Sticker> = emptySet()
+    private val startMatrices = HashMap<Sticker, Matrix>()
+    private val startCanvas = Matrix()
+    private var pinchStartDistance = 1f
+    private var pinchStartAngle = 0f
+    private val pinchStartMid = PointF()
+    private var longPressFired = false
+    private var longPressView: View? = null
+    private var longPressEvent: MotionEvent? = null
+    private var lastTapTime = 0L
+    private var lastTapSticker: Sticker? = null
+    private var moveAnchor: RectF? = null
+
+    private val longPressRunnable = Runnable { onLongPress() }
+
+    @SuppressLint("ClickableViewAccessibility")
+    fun onTouchEvent(view: StickerView, event: MotionEvent): Boolean {
+        cancelCameraAnimation()
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> onDown(view, event)
+            MotionEvent.ACTION_POINTER_DOWN -> onPointerDown(event)
+            MotionEvent.ACTION_MOVE -> onMove(view, event)
+            MotionEvent.ACTION_POINTER_UP -> onPointerUp(event)
+            MotionEvent.ACTION_UP -> onUp(view, event)
+            MotionEvent.ACTION_CANCEL -> onCancel()
+        }
+        invalidate()
+        return true
+    }
+
+    private fun onDown(view: StickerView, event: MotionEvent) {
+        cancelLongPress()
+        downX = event.x
+        downY = event.y
+        longPressFired = false
+        activePointerId = event.getPointerId(0)
+        calculateDown(event)
+        startCanvas.set(canvasMatrix.value!!.getMatrix())
+
+        if (tool.value == Tool.PICK_COLOR) {
+            gesture = Gesture.PICK
+            view.beginColorPick()
+            pick(view, event.x, event.y)
+            return
+        }
+        if (isLocked.value == true) {
+            gesture = Gesture.PRESS_CANVAS
+            return
+        }
+        if (tool.value == Tool.DRAW) {
+            gesture = Gesture.DRAW
+            strokePoints = FloatArray(64)
+            strokeSize = 0
+            addStrokePoint(event.x, event.y)
+            return
+        }
+
+        val single = handlingSticker.value
+        if (single != null && !single.isLocked && (isCropActive.value != true || single.isCroppable)) {
+            val icon = findCurrentIconTouched()
+            if (icon != null) {
+                gesture = Gesture.ICON
+                currentIcon.value = icon
+                currentMode.value = ActionMode.ICON
+                stickerWorldMatrix.set(single.matrix)
+                midPoint = StickerMath.calculateMidPoint(single)
+                oldRotation = StickerMath.calculateRotation(midPoint.x, midPoint.y, downXScaled, downYScaled)
+                history.begin(items)
+                icon.onActionDown(view, this, event)
+                scheduleLongPress(view, event)
+                return
+            }
+        }
+
+        val hit = findHandlingSticker()
+        if (hit != null) {
+            gesture = Gesture.PRESS_ITEM
+            pressed = hit
+            selectionBeforePress = LinkedHashSet(selection)
+            if (hit !in selection) {
+                setSelection(listOf(hit))
+            }
+            if (bringToFrontCurrentSticker.value == true) {
+                val group = groupOf(hit).toSet()
+                val front = items.filter { it in group }
+                items.removeAll(group)
+                items.addAll(front)
+            }
+            stickerOperationListener.onStickerTouchedDown(hit)
+        } else {
+            gesture = Gesture.PRESS_CANVAS
+            pressed = null
+        }
+        scheduleLongPress(view, event)
+    }
+
+    private fun onPointerDown(event: MotionEvent) {
+        cancelLongPress()
+        when (gesture) {
+            Gesture.PRESS_ITEM, Gesture.MOVE_ITEMS, Gesture.PINCH_ITEMS -> {
+                if (movable().isNotEmpty() && pressed?.isLocked != true) {
+                    history.begin(items)
+                    gesture = Gesture.PINCH_ITEMS
+                    startPinch(event)
+                } else {
+                    gesture = Gesture.PINCH_CANVAS
+                    startPinch(event)
+                }
+            }
+            Gesture.DRAW -> {
+                // A second finger turns drawing into navigation.
+                strokePoints = null
+                gesture = Gesture.PINCH_CANVAS
+                startPinch(event)
+            }
+            Gesture.MARQUEE -> {
+                marquee = null
+                gesture = Gesture.PINCH_CANVAS
+                startPinch(event)
+            }
+            Gesture.PRESS_CANVAS, Gesture.PAN, Gesture.PINCH_CANVAS, Gesture.NONE -> {
+                gesture = Gesture.PINCH_CANVAS
+                startPinch(event)
+            }
+            Gesture.ICON, Gesture.PICK -> {}
+        }
+    }
+
+    private fun movable(): List<Sticker> = selected().filter { !it.isLocked }
+
+    private fun startPinch(event: MotionEvent) {
+        if (event.pointerCount < 2) return
+        val x0 = event.getX(0)
+        val y0 = event.getY(0)
+        val x1 = event.getX(1)
+        val y1 = event.getY(1)
+        pinchStartDistance = max(1f, hypot(x1 - x0, y1 - y0))
+        pinchStartAngle = StickerMath.calculateRotation(x0, y0, x1, y1)
+        pinchStartMid.set((x0 + x1) / 2, (y0 + y1) / 2)
+        startCanvas.set(canvasMatrix.value!!.getMatrix())
+        saveStartMatrices()
+    }
+
+    private fun saveStartMatrices() {
+        startMatrices.clear()
+        movable().forEach { startMatrices[it] = Matrix(it.matrix) }
+    }
+
+    private fun onMove(view: StickerView, event: MotionEvent) {
+        val index = max(0, event.findPointerIndex(activePointerId))
+        val x = event.getX(index)
+        val y = event.getY(index)
+        val slop = ViewConfiguration.get(view.context).scaledTouchSlop
+        val beyondSlop = abs(x - downX) > slop || abs(y - downY) > slop
+
+        when (gesture) {
+            Gesture.DRAW -> {
+                for (h in 0 until event.historySize) {
+                    addStrokePoint(event.getHistoricalX(index, h), event.getHistoricalY(index, h))
+                }
+                addStrokePoint(x, y)
+            }
+            Gesture.PICK -> pick(view, x, y)
+            Gesture.ICON -> {
+                if (beyondSlop) cancelLongPress()
+                currentIcon.value?.onActionMove(view, this, event)
+            }
+            Gesture.PRESS_ITEM -> if (beyondSlop) {
+                cancelLongPress()
+                if (movable().isEmpty() || pressed?.isLocked == true || pressed !in selection) {
+                    // Locked items stay put; dragging them moves the canvas instead.
+                    gesture = Gesture.PAN
+                } else {
+                    history.begin(items)
+                    saveStartMatrices()
+                    moveAnchor = pressed?.worldBounds
+                    gesture = Gesture.MOVE_ITEMS
+                }
+                onMove(view, event)
+            }
+            Gesture.MOVE_ITEMS -> moveSelection(x - downX, y - downY)
+            Gesture.PRESS_CANVAS -> if (beyondSlop) {
+                cancelLongPress()
+                if (mustLockToPan.value == true && isLocked.value != true) {
+                    gesture = Gesture.NONE
+                } else {
+                    gesture = Gesture.PAN
+                    onMove(view, event)
+                }
+            }
+            Gesture.PAN -> {
+                moveMatrix.set(startCanvas)
+                moveMatrix.postTranslate(x - downX, y - downY)
+                setCanvas(moveMatrix)
+            }
+            Gesture.MARQUEE -> {
+                val rect = RectF(min(downX, x), min(downY, y), max(downX, x), max(downY, y))
+                marquee = rect
+                canvasMatrix.value!!.invert(inverse)
+                val world = RectF(rect)
+                inverse.mapRect(world)
+                val hits = items.filter { !it.isLocked && it.intersectsWorld(world) }
+                setSelection(selectionBeforePress + hits)
+            }
+            Gesture.PINCH_CANVAS -> if (event.pointerCount >= 2) {
+                val (scale, _, mid) = pinch(event)
+                moveMatrix.set(startCanvas)
+                moveMatrix.postTranslate(mid.x - pinchStartMid.x, mid.y - pinchStartMid.y)
+                val current = startCanvas.mapRadius(1f)
+                val clamped = (current * scale).coerceIn(MIN_ZOOM, MAX_ZOOM) / current
+                moveMatrix.postScale(clamped, clamped, mid.x, mid.y)
+                setCanvas(moveMatrix)
+            }
+            Gesture.PINCH_ITEMS -> if (event.pointerCount >= 2) {
+                val (scale, angle, mid) = pinch(event)
+                val pivot = screenToWorld(pinchStartMid.x, pinchStartMid.y)
+                val shift = screenToWorldVector(mid.x - pinchStartMid.x, mid.y - pinchStartMid.y)
+                for ((sticker, start) in startMatrices) {
+                    moveMatrix.set(start)
+                    moveMatrix.postScale(scale, scale, pivot.x, pivot.y)
+                    if (rotationEnabled.value == true) {
+                        moveMatrix.postRotate(angle, pivot.x, pivot.y)
+                    }
+                    moveMatrix.postTranslate(shift.x, shift.y)
+                    sticker.setMatrix(moveMatrix)
+                }
+            }
+            Gesture.NONE -> {}
+        }
+    }
+
+    private data class Pinch(val scale: Float, val angle: Float, val mid: PointF)
+
+    private fun pinch(event: MotionEvent): Pinch {
+        val x0 = event.getX(0)
+        val y0 = event.getY(0)
+        val x1 = event.getX(1)
+        val y1 = event.getY(1)
+        val distance = max(1f, hypot(x1 - x0, y1 - y0))
+        val angle = StickerMath.calculateRotation(x0, y0, x1, y1) - pinchStartAngle
+        return Pinch(distance / pinchStartDistance, angle, PointF((x0 + x1) / 2, (y0 + y1) / 2))
+    }
+
+    private fun moveSelection(screenDx: Float, screenDy: Float) {
+        var delta = screenToWorldVector(screenDx, screenDy)
+        val anchor = moveAnchor
+        if (snapToGrid.value == true && anchor != null) {
+            val left = snap(anchor.left + delta.x)
+            val top = snap(anchor.top + delta.y)
+            delta = PointF(left - anchor.left, top - anchor.top)
+        }
+        for ((sticker, start) in startMatrices) {
+            moveMatrix.set(start)
+            moveMatrix.postTranslate(delta.x, delta.y)
+            sticker.setMatrix(moveMatrix)
+            stickerOperationListener.onStickerMoved(sticker)
+        }
+    }
+
+    private fun snap(value: Float) = (value / GRID_SIZE).roundToInt() * GRID_SIZE
+
+    private fun onPointerUp(event: MotionEvent) {
+        val lifted = event.actionIndex
+        if (event.pointerCount > 2) {
+            // Keep pinching with the fingers that are left.
+            if (gesture == Gesture.PINCH_CANVAS || gesture == Gesture.PINCH_ITEMS) {
+                val remaining = (0 until event.pointerCount).filter { it != lifted }
+                val x0 = event.getX(remaining[0])
+                val y0 = event.getY(remaining[0])
+                val x1 = event.getX(remaining[1])
+                val y1 = event.getY(remaining[1])
+                pinchStartDistance = max(1f, hypot(x1 - x0, y1 - y0))
+                pinchStartAngle = StickerMath.calculateRotation(x0, y0, x1, y1)
+                pinchStartMid.set((x0 + x1) / 2, (y0 + y1) / 2)
+                startCanvas.set(canvasMatrix.value!!.getMatrix())
+                saveStartMatrices()
+            }
+            return
+        }
+        val remaining = if (lifted == 0) 1 else 0
+        activePointerId = event.getPointerId(remaining)
+        downX = event.getX(remaining)
+        downY = event.getY(remaining)
+        startCanvas.set(canvasMatrix.value!!.getMatrix())
+        when (gesture) {
+            Gesture.PINCH_CANVAS -> gesture = Gesture.PAN
+            Gesture.PINCH_ITEMS -> {
+                saveStartMatrices()
+                moveAnchor = pressed?.worldBounds
+                gesture = Gesture.MOVE_ITEMS
+            }
+            else -> {}
+        }
+    }
+
+    private fun onUp(view: StickerView, event: MotionEvent) {
+        cancelLongPress()
+        when (gesture) {
+            Gesture.DRAW -> finishStroke()
+            Gesture.PICK -> {
+                val color = pickedColor
+                pickPoint = null
+                view.endColorPick()
+                boardListener?.onColorPicked(color)
+            }
+            Gesture.ICON -> {
+                if (!longPressFired) {
+                    currentIcon.value?.onActionUp(view, this, event)
+                }
+                history.commit(items)
+                items.forEach { it.recalcFinalMatrix() }
+            }
+            Gesture.PRESS_ITEM -> if (!longPressFired) onTapItem(pressed!!)
+            Gesture.MOVE_ITEMS, Gesture.PINCH_ITEMS -> {
+                history.commit(items)
+                pressed?.let { stickerOperationListener.onStickerDragFinished(it) }
+            }
+            Gesture.PRESS_CANVAS -> if (!longPressFired && isLocked.value != true) clearSelection()
+            Gesture.MARQUEE -> marquee = null
+            Gesture.PAN, Gesture.PINCH_CANVAS, Gesture.NONE -> {}
+        }
+        gesture = Gesture.NONE
+        currentMode.value = ActionMode.NONE
+        currentIcon.value = null
+        pressed = null
+        moveAnchor = null
+        startMatrices.clear()
+        onSelectionChanged()
+    }
+
+    private fun onCancel() {
+        cancelLongPress()
+        history.commit(items)
+        gesture = Gesture.NONE
+        marquee = null
+        strokePoints = null
+        pickPoint = null
+        currentMode.value = ActionMode.NONE
+        currentIcon.value = null
+    }
+
+    private fun onTapItem(sticker: Sticker) {
+        // Tapping one item of a multi-selection narrows the selection to it.
+        if (sticker in selectionBeforePress && selectionBeforePress.size > groupOf(sticker).size) {
+            setSelection(listOf(sticker))
+        }
+        stickerOperationListener.onStickerClicked(sticker)
+        val now = SystemClock.uptimeMillis()
+        if (lastTapSticker === sticker && now - lastTapTime < ViewConfiguration.getDoubleTapTimeout()) {
+            lastTapSticker = null
+            stickerOperationListener.onStickerDoubleTapped(sticker)
+            if (sticker is NoteSticker && !sticker.isLocked) {
+                boardListener?.onEditNote(sticker)
+            } else {
+                focus(listOf(sticker))
+            }
+        } else {
+            lastTapSticker = sticker
+            lastTapTime = now
+        }
+    }
+
+    private fun scheduleLongPress(view: View, event: MotionEvent) {
+        longPressView = view
+        longPressEvent?.recycle()
+        longPressEvent = MotionEvent.obtain(event)
+        view.postDelayed(longPressRunnable, ViewConfiguration.getLongPressTimeout().toLong())
+    }
+
+    private fun cancelLongPress() {
+        longPressView?.removeCallbacks(longPressRunnable)
+    }
+
+    private fun onLongPress() {
+        val view = longPressView ?: return
+        longPressFired = true
+        when (gesture) {
+            Gesture.ICON -> {
+                val event = longPressEvent ?: return
+                currentIcon.value?.onActionLongPress(view as StickerView, this, event)
+            }
+            Gesture.PRESS_ITEM -> {
+                // Long press adds an item to (or removes it from) the selection.
+                view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                val sticker = pressed ?: return
+                val group = groupOf(sticker)
+                val updated = LinkedHashSet(selectionBeforePress)
+                if (sticker in selectionBeforePress) {
+                    updated.removeAll(group.toSet())
+                } else {
+                    updated.addAll(group)
+                }
+                setSelection(updated)
+                selectionBeforePress = LinkedHashSet(selection)
+            }
+            Gesture.PRESS_CANVAS -> if (isLocked.value != true) {
+                // Long press on empty canvas starts a rubber-band selection.
+                view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                selectionBeforePress = LinkedHashSet(selection)
+                marquee = RectF(downX, downY, downX, downY)
+                gesture = Gesture.MARQUEE
+            }
+            else -> {}
+        }
+        invalidate()
+    }
+
+    private fun addStrokePoint(screenX: Float, screenY: Float) {
+        val world = screenToWorld(screenX, screenY)
+        var points = strokePoints ?: return
+        if (strokeSize >= 2) {
+            // Skip points closer than a pixel on screen.
+            val lastX = points[strokeSize - 2]
+            val lastY = points[strokeSize - 1]
+            if (hypot(world.x - lastX, world.y - lastY) * canvasScale() < 1.5f) return
+        }
+        if (strokeSize + 2 > points.size) {
+            points = points.copyOf(points.size * 2)
+            strokePoints = points
+        }
+        points[strokeSize++] = world.x
+        points[strokeSize++] = world.y
+    }
+
+    /** The stroke being drawn, trimmed to its points. */
+    fun currentStroke(): FloatArray? = strokePoints?.copyOf(strokeSize)
+
+    private fun finishStroke() {
+        val points = currentStroke()
+        strokePoints = null
+        if (points == null || points.isEmpty()) return
+        val drawing = DrawingSticker.fromWorldPoints(penColor, penWidth / canvasScale(), points)
+        drawing.setCanvasMatrix(canvasMatrix.value!!.getMatrix())
+        history.record(items) {
+            items.add(drawing)
+        }
+        invalidate()
+    }
+
+    private fun pick(view: StickerView, x: Float, y: Float) {
+        pickPoint = PointF(x, y)
+        pickedColor = view.sampleColor(x, y)
+    }
+
+    private fun setCanvas(matrix: Matrix) {
+        canvasMatrix.value!!.setMatrix(matrix)
+        updateCanvasMatrix()
+    }
+
+    // endregion
+
+    // region Icon handles (single selection)
+
+    fun resetCurrentStickerCropping() = resetCrop()
+
+    fun resetCurrentStickerZoom() = resetTransform()
+
+    fun resetCurrentStickerRotation() {
+        change {
+            movable().forEach { sticker ->
+                val b = sticker.worldBounds
+                val rotation = if (sticker.isFlippedVertically) sticker.currentAngle else -sticker.currentAngle
+                sticker.matrix.postRotate(rotation, b.centerX(), b.centerY())
             }
         }
     }
@@ -442,153 +898,93 @@ open class StickerViewModel :
     }
 
     fun zoomAndRotateSticker(sticker: Sticker?, event: MotionEvent) {
-        if (sticker != null) {
-            val temp = floatArrayOf(event.x, event.y)
-            val a = Matrix()
-            canvasMatrix.value!!.invert(a)
-            a.mapPoints(temp)
-            val temp2 = floatArrayOf(sticker.centerPointCropped.x, sticker.centerPointCropped.y)
-            stickerWorldMatrix.mapPoints(temp2)
-            //canvasMatrix.mapPoints(temp2);
-            midPoint.x = temp2[0]
-            midPoint.y = temp2[1]
-            val oldDistance = StickerMath.calculateDistance(
-                midPoint.x,
-                midPoint.y,
-                downXScaled,
-                downYScaled
-            )
-            val newDistance = StickerMath.calculateDistance(
-                midPoint.x,
-                midPoint.y,
-                temp[0],
-                temp[1]
-            )
-            val newRotation = StickerMath.calculateRotation(
-                midPoint.x,
-                midPoint.y,
-                temp[0],
-                temp[1]
-            )
-            moveMatrix.set(stickerWorldMatrix)
-            moveMatrix.postScale(
-                newDistance / oldDistance,
-                newDistance / oldDistance,
-                midPoint.x,
-                midPoint.y
-            )
-            if (rotationEnabled.value == true) {
-                moveMatrix.postRotate(newRotation - oldRotation, midPoint.x, midPoint.y)
-            }
-            handlingSticker.value!!.setMatrix(moveMatrix)
+        if (sticker == null) return
+        val temp = floatArrayOf(event.x, event.y)
+        canvasMatrix.value!!.invert(inverse)
+        inverse.mapPoints(temp)
+        val temp2 = floatArrayOf(sticker.centerPointCropped.x, sticker.centerPointCropped.y)
+        stickerWorldMatrix.mapPoints(temp2)
+        midPoint.x = temp2[0]
+        midPoint.y = temp2[1]
+        val oldDistance = StickerMath.calculateDistance(midPoint.x, midPoint.y, downXScaled, downYScaled)
+        val newDistance = StickerMath.calculateDistance(midPoint.x, midPoint.y, temp[0], temp[1])
+        val newRotation = StickerMath.calculateRotation(midPoint.x, midPoint.y, temp[0], temp[1])
+        moveMatrix.set(stickerWorldMatrix)
+        moveMatrix.postScale(newDistance / oldDistance, newDistance / oldDistance, midPoint.x, midPoint.y)
+        if (rotationEnabled.value == true) {
+            moveMatrix.postRotate(newRotation - oldRotation, midPoint.x, midPoint.y)
         }
-    }
-
-    protected fun constrainSticker(view: StickerView, sticker: Sticker) {
-        var moveX = 0f
-        var moveY = 0f
-        val width: Int = view.getWidth()
-        val height: Int = view.getHeight()
-        sticker.getMappedCenterPoint(currentCenterPoint, point, tmp)
-        if (currentCenterPoint.x < 0) {
-            moveX = -currentCenterPoint.x
-        }
-        if (currentCenterPoint.x > width) {
-            moveX = width - currentCenterPoint.x
-        }
-        if (currentCenterPoint.y < 0) {
-            moveY = -currentCenterPoint.y
-        }
-        if (currentCenterPoint.y > height) {
-            moveY = height - currentCenterPoint.y
-        }
-        sticker.matrix.postTranslate(moveX, moveY)
+        sticker.setMatrix(moveMatrix)
     }
 
     fun cropCurrentSticker(event: MotionEvent, gravity: Int) {
         cropSticker(handlingSticker.value, event, gravity)
     }
 
-    private fun convertFlippedGravity(sticker: Sticker, gravity: Int): Int =
+    private fun convertFlippedGravity(sticker: Sticker, gravity: Int): Int {
+        var result = gravity
         if (sticker.isFlippedHorizontally) {
-            if (sticker.isFlippedVertically) {
-                when (gravity) {
-                    BitmapStickerIcon.LEFT_TOP -> BitmapStickerIcon.RIGHT_BOTTOM
-                    BitmapStickerIcon.LEFT_BOTTOM -> BitmapStickerIcon.RIGHT_TOP
-                    BitmapStickerIcon.RIGHT_TOP -> BitmapStickerIcon.LEFT_BOTTOM
-                    BitmapStickerIcon.RIGHT_BOTTOM -> BitmapStickerIcon.LEFT_TOP
-                    else -> gravity
-                }
-            } else {
-                when (gravity) {
-                    BitmapStickerIcon.LEFT_TOP -> BitmapStickerIcon.RIGHT_TOP
-                    BitmapStickerIcon.LEFT_BOTTOM -> BitmapStickerIcon.RIGHT_BOTTOM
-                    BitmapStickerIcon.RIGHT_TOP -> BitmapStickerIcon.LEFT_TOP
-                    BitmapStickerIcon.RIGHT_BOTTOM -> BitmapStickerIcon.LEFT_BOTTOM
-                    else -> gravity
-                }
-            }
-        } else {
-            if (sticker.isFlippedVertically) {
-                when (gravity) {
-                    BitmapStickerIcon.LEFT_TOP -> BitmapStickerIcon.LEFT_BOTTOM
-                    BitmapStickerIcon.LEFT_BOTTOM -> BitmapStickerIcon.LEFT_TOP
-                    BitmapStickerIcon.RIGHT_TOP -> BitmapStickerIcon.RIGHT_BOTTOM
-                    BitmapStickerIcon.RIGHT_BOTTOM -> BitmapStickerIcon.RIGHT_TOP
-                    else -> gravity
-                }
-            } else {
-                gravity
+            result = when (result) {
+                BitmapStickerIcon.LEFT_TOP -> BitmapStickerIcon.RIGHT_TOP
+                BitmapStickerIcon.LEFT_BOTTOM -> BitmapStickerIcon.RIGHT_BOTTOM
+                BitmapStickerIcon.RIGHT_TOP -> BitmapStickerIcon.LEFT_TOP
+                BitmapStickerIcon.RIGHT_BOTTOM -> BitmapStickerIcon.LEFT_BOTTOM
+                else -> result
             }
         }
-
+        if (sticker.isFlippedVertically) {
+            result = when (result) {
+                BitmapStickerIcon.LEFT_TOP -> BitmapStickerIcon.LEFT_BOTTOM
+                BitmapStickerIcon.LEFT_BOTTOM -> BitmapStickerIcon.LEFT_TOP
+                BitmapStickerIcon.RIGHT_TOP -> BitmapStickerIcon.RIGHT_BOTTOM
+                BitmapStickerIcon.RIGHT_BOTTOM -> BitmapStickerIcon.RIGHT_TOP
+                else -> result
+            }
+        }
+        return result
+    }
 
     protected fun cropSticker(sticker: Sticker?, event: MotionEvent, gravity: Int) {
-        if (sticker == null) {
+        if (sticker == null || !sticker.isCroppable) {
             return
         }
-        val dx = event.x
-        val dy = event.y
         val inv = Matrix()
         sticker.canvasMatrix.invert(inv)
         val inv2 = Matrix()
         sticker.matrix.invert(inv2)
-        val temp = floatArrayOf(dx, dy)
+        val temp = floatArrayOf(event.x, event.y)
         inv.mapPoints(temp)
         inv2.mapPoints(temp)
-        val cropped = RectF(sticker.getCroppedBounds())
-        val px = temp[0].toInt()
-        val py = temp[1].toInt()
+        val cropped = RectF(sticker.croppedBounds)
+        val px = temp[0].toInt().toFloat()
+        val py = temp[1].toInt().toFloat()
 
-        val flippedGravity = convertFlippedGravity(sticker, gravity)
-        when (flippedGravity) {
+        when (convertFlippedGravity(sticker, gravity)) {
             BitmapStickerIcon.LEFT_TOP -> {
-                cropped.left = Math.min(px.toFloat(), cropped.right)
-                cropped.top = Math.min(py.toFloat(), cropped.bottom)
+                cropped.left = min(px, cropped.right)
+                cropped.top = min(py, cropped.bottom)
             }
             BitmapStickerIcon.RIGHT_TOP -> {
-                cropped.right = Math.max(px.toFloat(), cropped.left)
-                cropped.top = Math.min(py.toFloat(), cropped.bottom)
+                cropped.right = max(px, cropped.left)
+                cropped.top = min(py, cropped.bottom)
             }
             BitmapStickerIcon.LEFT_BOTTOM -> {
-                cropped.left = Math.min(px.toFloat(), cropped.right)
-                cropped.bottom = Math.max(py.toFloat(), cropped.top)
+                cropped.left = min(px, cropped.right)
+                cropped.bottom = max(py, cropped.top)
             }
             BitmapStickerIcon.RIGHT_BOTTOM -> {
-                cropped.right = Math.max(px.toFloat(), cropped.left)
-                cropped.bottom = Math.max(py.toFloat(), cropped.top)
+                cropped.right = max(px, cropped.left)
+                cropped.bottom = max(py, cropped.top)
             }
         }
         sticker.setCroppedBounds(cropped)
     }
 
-    fun duplicateCurrentSticker() {
-        handlingSticker.value?.let { duplicateSticker(it) }
-    }
+    fun duplicateCurrentSticker() = duplicateSelection()
 
     fun duplicateSticker(sticker: Sticker) {
-        val newSticker = DrawableSticker(sticker as DrawableSticker)
-        addSticker(newSticker)
+        setSelection(listOf(sticker))
+        duplicateSelection()
     }
 
     protected fun findCurrentIconTouched(): BitmapStickerIcon? {
@@ -596,51 +992,18 @@ open class StickerViewModel :
             val x: Float = icon.x + icon.iconRadius - downXScaled
             val y: Float = icon.y + icon.iconRadius - downYScaled
             val distancePow2 = x * x + y * y
-            if (distancePow2 <= ((icon.iconRadius + icon.iconRadius) * 1.2f.toDouble()).pow(2.0)
-            ) {
+            if (distancePow2 <= ((icon.iconRadius + icon.iconRadius) * 1.2f.toDouble()).pow(2.0)) {
                 return icon
             }
         }
         return null
     }
 
-    /**
-     * find the touched Sticker
-     */
+    /** The topmost item under the touch point. */
     protected fun findHandlingSticker(): Sticker? {
-        stickers.value?.let {
-            for (i in it.indices.reversed()) {
-                if (isInStickerAreaCropped(it[i], downX, downY)) {
-                    return it[i]
-                }
-            }
-        }
-        return null
-    }
-
-    protected fun isInStickerArea(sticker: Sticker, downX: Float, downY: Float): Boolean {
         tmp[0] = downX
         tmp[1] = downY
-        return sticker.contains(tmp)
-    }
-
-    protected fun isInStickerAreaCropped(sticker: Sticker, downX: Float, downY: Float): Boolean {
-        tmp[0] = downX
-        tmp[1] = downY
-        return sticker.containsCropped(tmp)
-    }
-
-    protected fun calculateMidPoint(event: MotionEvent?): PointF {
-        if (event == null || event.pointerCount < 2) {
-            midPoint.set(0f, 0f)
-            return midPoint
-        }
-        val pts = floatArrayOf(event.getX(0), event.getY(0), event.getX(1), event.getY(1))
-        //canvasMatrix.mapPoints(pts);
-        val x = (pts[0] + pts[2]) / 2
-        val y = (pts[1] + pts[3]) / 2
-        midPoint.set(x, y)
-        return midPoint
+        return items.lastOrNull { it.isVisible && it.containsCropped(tmp) }
     }
 
     protected fun calculateDown(event: MotionEvent?) {
@@ -654,25 +1017,14 @@ open class StickerViewModel :
         val pts = floatArrayOf(event.getX(0), event.getY(0))
         downX = pts[0]
         downY = pts[1]
-        val a = Matrix()
-        canvasMatrix.value!!.invert(a)
-        a.mapPoints(pts)
+        canvasMatrix.value!!.invert(inverse)
+        inverse.mapPoints(pts)
         downXScaled = pts[0]
         downYScaled = pts[1]
     }
 
-    protected fun calculateMidPoint(): PointF {
-        if (handlingSticker.value == null) {
-            midPoint.set(0f, 0f)
-            return midPoint
-        }
-        handlingSticker.value!!.getMappedCenterPoint(midPoint, point, tmp)
-        return midPoint
-    }
-
-
     fun flipCurrentSticker(direction: Int) {
-        handlingSticker.value?.let { flip(it, direction) }
+        handlingSticker.value?.let { sticker -> change { flip(sticker, direction) } }
     }
 
     private fun flip(sticker: Sticker, @Flip direction: Int) {
@@ -690,10 +1042,358 @@ open class StickerViewModel :
     }
 
     fun showCurrentSticker() {
-        handlingSticker.value?.setVisible(true)
+        handlingSticker.value?.isVisible = true
     }
 
     fun hideCurrentSticker() {
-        handlingSticker.value?.setVisible(false)
+        handlingSticker.value?.isVisible = false
+    }
+
+    // endregion
+
+    // region Board operations (PureRef's Images menu)
+
+    private fun unionBounds(stickers: Collection<Sticker>): RectF {
+        val union = RectF()
+        stickers.forEachIndexed { i, s -> if (i == 0) union.set(s.worldBounds) else union.union(s.worldBounds) }
+        return union
+    }
+
+    private fun viewAspect(): Float {
+        val frameHeight = viewHeight - frameInsetTop - frameInsetBottom
+        return if (viewWidth > 0 && frameHeight > 0) viewWidth / frameHeight else 1f
+    }
+
+    /** Spacing between arranged items, proportional to their typical size. */
+    private fun gapFor(bounds: List<RectF>): Float {
+        val sides = bounds.map { min(it.width(), it.height()) }.sorted()
+        return max(1f, sides[sides.size / 2] * 0.03f)
+    }
+
+    fun arrange(arrangement: Arrangement) {
+        val targets = targets().filter { !it.isLocked }
+        if (targets.isEmpty()) return
+        change {
+            val bounds = targets.map { it.worldBounds }
+            val origin = unionBounds(targets)
+            val gap = gapFor(bounds)
+            val order: List<Int> = when (arrangement) {
+                Arrangement.OPTIMAL -> targets.indices.toList()
+                Arrangement.NAME -> targets.indices.sortedWith(
+                    compareBy<Int, String?>(NaturalOrder) { targets[it].name }
+                        .thenBy { targets[it].addedOrder })
+                Arrangement.ORDER -> targets.indices.sortedBy { targets[it].addedOrder }
+                Arrangement.RANDOM -> targets.indices.shuffled()
+            }
+            val boxes = order.map { Arranger.Box(bounds[it].width(), bounds[it].height()) }
+            val positions = if (arrangement == Arrangement.OPTIMAL) {
+                Arranger.optimal(boxes, gap, viewAspect())
+            } else {
+                Arranger.rows(boxes, gap, viewAspect())
+            }
+            order.forEachIndexed { k, i ->
+                targets[i].matrix.postTranslate(
+                    origin.left + positions[k].x - bounds[i].left,
+                    origin.top + positions[k].y - bounds[i].top
+                )
+            }
+        }
+        // Like PureRef, frame the result afterwards.
+        fitTo(targets)
+    }
+
+    fun align(alignment: Alignment) {
+        val targets = targets().filter { !it.isLocked }
+        if (targets.size < 2) return
+        change {
+            val bounds = targets.map { it.worldBounds }
+            val union = unionBounds(targets)
+            val gap = gapFor(bounds)
+            when (alignment) {
+                Alignment.LEFT -> targets.forEachIndexed { i, s -> s.matrix.postTranslate(union.left - bounds[i].left, 0f) }
+                Alignment.RIGHT -> targets.forEachIndexed { i, s -> s.matrix.postTranslate(union.right - bounds[i].right, 0f) }
+                Alignment.TOP -> targets.forEachIndexed { i, s -> s.matrix.postTranslate(0f, union.top - bounds[i].top) }
+                Alignment.BOTTOM -> targets.forEachIndexed { i, s -> s.matrix.postTranslate(0f, union.bottom - bounds[i].bottom) }
+                Alignment.ROW -> {
+                    var x = union.left
+                    targets.indices.sortedBy { bounds[it].left }.forEach { i ->
+                        targets[i].matrix.postTranslate(x - bounds[i].left, union.top - bounds[i].top)
+                        x += bounds[i].width() + gap
+                    }
+                }
+                Alignment.COLUMN -> {
+                    var y = union.top
+                    targets.indices.sortedBy { bounds[it].top }.forEach { i ->
+                        targets[i].matrix.postTranslate(union.left - bounds[i].left, y - bounds[i].top)
+                        y += bounds[i].height() + gap
+                    }
+                }
+                Alignment.STACK -> targets.forEachIndexed { i, s ->
+                    s.matrix.postTranslate(union.left - bounds[i].left, union.top - bounds[i].top)
+                }
+            }
+        }
+    }
+
+    /** Scales items to a common size (the average), each around its own centre. */
+    fun normalize(normalization: Normalization) {
+        val targets = targets().filter { !it.isLocked }
+        if (targets.size < 2) return
+        change {
+            val bounds = targets.map { it.worldBounds }
+            val measure: (Int) -> Float = when (normalization) {
+                Normalization.HEIGHT -> { i -> bounds[i].height() }
+                Normalization.WIDTH -> { i -> bounds[i].width() }
+                Normalization.SCALE -> { i -> targets[i].currentScale }
+                Normalization.SIZE -> { i -> max(bounds[i].width(), bounds[i].height()) }
+                Normalization.AREA -> { i -> sqrt(bounds[i].width() * bounds[i].height()) }
+            }
+            val reference = targets.indices.map(measure).average().toFloat()
+            targets.forEachIndexed { i, s ->
+                val m = measure(i)
+                if (m > 0f) {
+                    val f = reference / m
+                    s.matrix.postScale(f, f, bounds[i].centerX(), bounds[i].centerY())
+                }
+            }
+        }
+    }
+
+    fun deleteSelection() {
+        val doomed = selected()
+        if (doomed.isEmpty()) return
+        change { items.removeAll(doomed.toSet()) }
+        clearSelection()
+    }
+
+    fun duplicateSelection() {
+        val originals = selected()
+        if (originals.isEmpty()) return
+        val offset = gapFor(originals.map { it.worldBounds }) * 2
+        val groups = HashMap<Long, Long>()
+        val copies = originals.map { original ->
+            original.copy(false).also {
+                it.matrix.postTranslate(offset, offset)
+                if (original.groupId != 0L) {
+                    it.groupId = groups.getOrPut(original.groupId) { Sticker.newGroupId() }
+                }
+                it.setCanvasMatrix(canvasMatrix.value!!.getMatrix())
+            }
+        }
+        change { items.addAll(copies) }
+        setSelection(copies)
+    }
+
+    fun flipSelection(@Flip direction: Int) {
+        val targets = movable()
+        if (targets.isEmpty()) return
+        change { targets.forEach { flip(it, direction) } }
+    }
+
+    /** Resets scale and rotation, keeping flips and the item's centre. */
+    fun resetTransform() {
+        val targets = movable()
+        if (targets.isEmpty()) return
+        change {
+            targets.forEach { s ->
+                val center = s.worldBounds
+                s.matrix.reset()
+                if (s.isFlippedHorizontally) s.matrix.preScale(-1f, 1f, s.width / 2f, s.height / 2f)
+                if (s.isFlippedVertically) s.matrix.preScale(1f, -1f, s.width / 2f, s.height / 2f)
+                val now = s.worldBounds
+                s.matrix.postTranslate(center.centerX() - now.centerX(), center.centerY() - now.centerY())
+            }
+        }
+    }
+
+    fun resetCrop() {
+        val targets = movable().filter { it.isCroppable }
+        if (targets.isEmpty()) return
+        change { targets.forEach { it.setCroppedBounds(RectF(it.realBounds)) } }
+    }
+
+    fun sendToFront() {
+        val chosen = selected()
+        if (chosen.isEmpty()) return
+        change {
+            items.removeAll(chosen.toSet())
+            items.addAll(chosen)
+        }
+    }
+
+    fun sendToBack() {
+        val chosen = selected()
+        if (chosen.isEmpty()) return
+        change {
+            items.removeAll(chosen.toSet())
+            items.addAll(0, chosen)
+        }
+    }
+
+    /** Flips a boolean property on the selection: on for all unless all are already on. */
+    private fun toggle(get: (Sticker) -> Boolean, set: (Sticker, Boolean) -> Unit) {
+        val chosen = selected()
+        if (chosen.isEmpty()) return
+        val value = !chosen.all(get)
+        change { chosen.forEach { set(it, value) } }
+    }
+
+    fun toggleGrayscale() = toggle({ it.isGrayscale }, { s, v -> s.isGrayscale = v })
+
+    fun toggleSmooth() = toggle({ !it.isSmooth }, { s, v -> s.isSmooth = !v })
+
+    fun toggleLocked() = toggle({ it.isLocked }, { s, v -> s.isLocked = v })
+
+    fun setOpacity(opacity: Int) {
+        val chosen = selected()
+        change { chosen.forEach { it.opacity = opacity } }
+    }
+
+    fun group() {
+        val chosen = selected()
+        if (chosen.size < 2) return
+        val id = Sticker.newGroupId()
+        change { chosen.forEach { it.groupId = id } }
+    }
+
+    fun ungroup() {
+        val chosen = selected()
+        change { chosen.forEach { it.groupId = 0L } }
+    }
+
+    fun cropDestructively(resources: android.content.res.Resources, all: Boolean) {
+        val chosen = (if (all) ArrayList(items) else selected()).filterIsInstance<DrawableSticker>()
+        change { chosen.forEach { it.cropDestructively(resources) } }
+    }
+
+    // endregion
+
+    // region Camera
+
+    private var cameraAnimator: ValueAnimator? = null
+    private var focusReturn: Matrix? = null
+    private var focusedIds: Set<Long> = emptySet()
+
+    private fun cancelCameraAnimation() {
+        cameraAnimator?.cancel()
+        cameraAnimator = null
+    }
+
+    fun animateCanvasTo(target: Matrix) {
+        cancelCameraAnimation()
+        val from = FloatArray(9).also { canvasMatrix.value!!.getMatrix().getValues(it) }
+        val to = FloatArray(9).also { target.getValues(it) }
+        val current = FloatArray(9)
+        val m = Matrix()
+        cameraAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 250
+            interpolator = DecelerateInterpolator()
+            addUpdateListener {
+                val t = it.animatedValue as Float
+                for (i in 0 until 9) current[i] = from[i] + (to[i] - from[i]) * t
+                m.setValues(current)
+                setCanvas(m)
+            }
+            start()
+        }
+    }
+
+    /** Frames the given items; everything if empty. */
+    fun fitTo(stickers: Collection<Sticker>) {
+        if (viewWidth == 0 || viewHeight == 0) return
+        val chosen = stickers.ifEmpty { items }
+        if (chosen.isEmpty()) {
+            resetView()
+            return
+        }
+        val bounds = unionBounds(chosen)
+        val margin = 0.94f
+        // Frame inside the part of the screen the toolbars don't cover.
+        val frameHeight = max(1f, viewHeight - frameInsetTop - frameInsetBottom)
+        val scale = min(
+            viewWidth * margin / max(1f, bounds.width()),
+            frameHeight * margin / max(1f, bounds.height())
+        ).coerceIn(MIN_ZOOM, MAX_ZOOM)
+        val target = Matrix()
+        target.setScale(scale, scale)
+        target.postTranslate(
+            viewWidth / 2f - bounds.centerX() * scale,
+            frameInsetTop + frameHeight / 2f - bounds.centerY() * scale
+        )
+        animateCanvasTo(target)
+    }
+
+    /** "Optimize": fit the canvas snugly around all images. */
+    fun fitAll() = fitTo(items)
+
+    /** Zooms in on the given items; doing it again returns to the previous view. */
+    fun focus(stickers: List<Sticker>) {
+        val ids = stickers.map { it.id }.toSet()
+        val back = focusReturn
+        if (back != null && ids == focusedIds) {
+            focusReturn = null
+            focusedIds = emptySet()
+            animateCanvasTo(back)
+            return
+        }
+        focusReturn = Matrix(canvasMatrix.value!!.getMatrix())
+        focusedIds = ids
+        fitTo(stickers)
+    }
+
+    fun zoomToSelection() {
+        val chosen = selected()
+        if (chosen.isEmpty()) fitAll() else focus(chosen)
+    }
+
+    /** Back to 100% zoom, keeping the centre of the screen in place. */
+    fun resetZoom() {
+        val center = screenToWorld(viewWidth / 2f, viewHeight / 2f)
+        val target = Matrix()
+        target.setTranslate(viewWidth / 2f - center.x, viewHeight / 2f - center.y)
+        animateCanvasTo(target)
+    }
+
+    // endregion
+
+    override fun onCleared() {
+        cancelCameraAnimation()
+        cancelLongPress()
+        super.onCleared()
+    }
+
+    companion object {
+        const val DEFAULT_BACKGROUND = 0xFF303030.toInt()
+
+        /** World units between grid lines, and the snapping step. */
+        const val GRID_SIZE = 50f
+
+        const val MIN_ZOOM = 0.01f
+        const val MAX_ZOOM = 50f
+    }
+}
+
+/** Orders "img2" before "img10". */
+object NaturalOrder : Comparator<String?> {
+    private val chunk = Regex("\\d+|\\D+")
+
+    override fun compare(a: String?, b: String?): Int {
+        if (a == b) return 0
+        if (a == null) return 1
+        if (b == null) return -1
+        val x = chunk.findAll(a.lowercase()).map { it.value }.toList()
+        val y = chunk.findAll(b.lowercase()).map { it.value }.toList()
+        for (i in 0 until min(x.size, y.size)) {
+            val p = x[i]
+            val q = y[i]
+            val c = if (p[0].isDigit() && q[0].isDigit()) {
+                p.trimStart('0').length.compareTo(q.trimStart('0').length).takeIf { it != 0 }
+                    ?: p.trimStart('0').compareTo(q.trimStart('0'))
+            } else {
+                p.compareTo(q)
+            }
+            if (c != 0) return c
+        }
+        return x.size.compareTo(y.size)
     }
 }
