@@ -1068,7 +1068,9 @@ open class StickerViewModel :
     }
 
     private fun flip(sticker: Sticker, @Flip direction: Int) {
-        sticker.getCenterPoint(midPoint)
+        // Mirror around the centre of the visible (cropped) area so a cropped
+        // image flips in place instead of jumping to the mirrored position.
+        sticker.getCenterPointCropped(midPoint)
         if (direction and StickerView.FLIP_HORIZONTALLY > 0) {
             sticker.matrix.preScale(-1f, 1f, midPoint.x, midPoint.y)
             sticker.isFlippedHorizontally = !sticker.isFlippedHorizontally
