@@ -11,9 +11,7 @@ android {
     defaultConfig {
         applicationId "xyz.ruin.droidref"
         minSdk 23
-        // Raising this past 29 opts into scoped storage, which breaks saving
-        // boards to Pictures/DroidRef; migrate storage access first.
-        targetSdk 29
+        targetSdk 36
         versionCode 3
         versionName "1.1.0"
 
@@ -44,10 +42,6 @@ android {
     }
     buildFeatures {
         dataBinding = true
-    }
-    lint {
-        // targetSdk is intentionally held back; see defaultConfig.
-        disable 'ExpiredTargetSdkVersion', 'OldTargetApi'
     }
 }
 

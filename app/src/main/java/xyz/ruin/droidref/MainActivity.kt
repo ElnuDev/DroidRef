@@ -6,6 +6,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.graphics.Matrix
 import android.net.Uri
 import android.os.Build
@@ -14,13 +15,21 @@ import android.os.Parcelable
 import android.util.Patterns
 import android.view.MenuItem
 import android.view.View
+import android.view.ViewGroup
 import android.widget.PopupMenu
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.core.graphics.Insets
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updateLayoutParams
 import androidx.databinding.DataBindingUtil
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
@@ -77,9 +86,22 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
         if (Timber.treeCount == 0) {
             Timber.plant(Timber.DebugTree())
         }
+        // Draw the board under the system bars (mandatory when targeting
+        // Android 15+); the toolbars are inset below in applySystemBarInsets.
+        // The board is always dark, so always use light system bar icons.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+        )
         super.onCreate(savedInstanceState)
 
         binding = DataBindingUtil.setContentView(this, R.layout.activity_main)
+        applySystemBarInsets()
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                confirm("Are you sure you want to quit?") { finish() }
+            }
+        })
 
         stickerViewModel = ViewModelProvider(this)[StickerViewModel::class.java]
         stickerViewModel.stickerOperationListener = RedrawListener(binding.stickerView)
@@ -738,10 +760,36 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
             .show()
     }
 
+    private var systemBars = Insets.NONE
+
+    /** Keeps the toolbars clear of the status bar, navigation bar and cutouts. */
+    private fun applySystemBarInsets() {
+        ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, insets ->
+            systemBars = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            binding.toolbarTop.updateLayoutParams<ViewGroup.MarginLayoutParams> {
+                topMargin = systemBars.top
+                marginStart = systemBars.left
+            }
+            binding.toolbarHideShowUI.updateLayoutParams<ViewGroup.MarginLayoutParams> {
+                topMargin = systemBars.top
+                marginEnd = systemBars.right
+            }
+            binding.toolbarBottom.updateLayoutParams<ViewGroup.MarginLayoutParams> {
+                bottomMargin = systemBars.bottom
+                marginStart = systemBars.left
+                marginEnd = systemBars.right
+            }
+            updateFrameInsets()
+            insets
+        }
+    }
+
     private fun updateFrameInsets(hidden: Boolean = binding.buttonHideShowUI.isChecked) {
         val toolbar = if (hidden) 0f else 48 * resources.displayMetrics.density
-        stickerViewModel.frameInsetTop = toolbar
-        stickerViewModel.frameInsetBottom = toolbar
+        stickerViewModel.frameInsetTop = systemBars.top + toolbar
+        stickerViewModel.frameInsetBottom = systemBars.bottom + toolbar
     }
 
     private fun setUIVisibility(hidden: Boolean) {
@@ -756,10 +804,6 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
         )
     }
 
-    @Deprecated("Deprecated in Java")
-    override fun onBackPressed() {
-        confirm("Are you sure you want to quit?") { finish() }
-    }
 
     // endregion
 
