@@ -56,6 +56,12 @@ open class StickerViewModel :
     enum class Normalization { HEIGHT, WIDTH, SCALE, SIZE, AREA }
 
     val tool = MutableLiveData(Tool.SELECT)
+
+    /**
+     * Multi-select mode: taps add to / remove from the selection, and a
+     * one-finger drag draws a selection box instead of moving the board.
+     */
+    val selectMode = MutableLiveData(false)
     val gridMode = MutableLiveData(GridMode.NONE)
     val snapToGrid = MutableLiveData(false)
     val canvasGrayscale = MutableLiveData(false)
@@ -655,7 +661,12 @@ open class StickerViewModel :
             Gesture.MOVE_ITEMS -> moveSelection(x - downX, y - downY)
             Gesture.PRESS_CANVAS -> if (beyondSlop) {
                 cancelLongPress()
-                if (mustLockToPan.value == true && isLocked.value != true) {
+                if (selectMode.value == true && isLocked.value != true) {
+                    // In select mode, dragging draws a selection box, even over images.
+                    marquee = RectF(downX, downY, downX, downY)
+                    gesture = Gesture.MARQUEE
+                    onMove(view, event)
+                } else if (mustLockToPan.value == true && isLocked.value != true) {
                     gesture = Gesture.NONE
                 } else {
                     gesture = Gesture.PAN
@@ -801,7 +812,11 @@ open class StickerViewModel :
             }
             Gesture.PRESS_CANVAS -> if (!longPressFired && isLocked.value != true) {
                 val item = pressed
-                if (item == null) clearSelection() else onTapUnselected(item)
+                when {
+                    item != null -> onTapUnselected(item)
+                    // Don't lose a selection being built up by a stray tap.
+                    selectMode.value != true -> clearSelection()
+                }
             }
             Gesture.MARQUEE -> marquee = null
             Gesture.PAN, Gesture.PINCH_CANVAS, Gesture.NONE -> {}
@@ -831,9 +846,9 @@ open class StickerViewModel :
         currentIcon.value = null
     }
 
-    /** Tapping an unselected item selects it (alone). */
+    /** Tapping an unselected item selects it: alone, or in addition in select mode. */
     private fun onTapUnselected(sticker: Sticker) {
-        setSelection(listOf(sticker))
+        setSelection(if (selectMode.value == true) selection + groupOf(sticker) else groupOf(sticker))
         bringToFront(sticker)
         stickerOperationListener.onStickerClicked(sticker)
         rememberTap(sticker)

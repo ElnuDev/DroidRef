@@ -222,6 +222,14 @@
                         android:layout_height="match_parent" />
 
                     <TextView
+                        android:id="@+id/buttonSelect"
+                        style="@style/ToolbarButton"
+                        android:contentDescription="@string/select_mode"
+                        android:drawableTop="@drawable/ic_select_all_24"
+                        android:selected="@{safeUnbox(viewModel.selectMode)}"
+                        android:text="Select" />
+
+                    <TextView
                         android:id="@+id/buttonDuplicate"
                         style="@style/ToolbarButton"
                         android:contentDescription="@string/duplicate"

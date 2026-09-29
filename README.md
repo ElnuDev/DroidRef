@@ -24,6 +24,7 @@ Modelled on PureRef:
 | Tap an image | Select it; tap again to deselect |
 | Long-press an image | Add it to / remove it from the selection (keep holding to drag) |
 | Long-press empty canvas, then drag | Rubber-band select |
+| With **Select** on: tap / drag | Add or remove images / box-select, even over images |
 | Drag / pinch a selected image | Move / scale the selection (and rotate, if rotation is on) |
 | Drag / pinch anywhere else | Pan / zoom the board, even over unselected images |
 | Double-tap an image | Zoom to it; again to go back. Edits notes. |

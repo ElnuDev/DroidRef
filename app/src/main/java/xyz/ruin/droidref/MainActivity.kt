@@ -532,19 +532,27 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
             if (vm.tool.value == Tool.DRAW) {
                 hintOnce(
                     "draw",
-                    "Draw: drag with one finger to draw; use two fingers to move around. " +
-                            "Pen color and width are under More › View."
+                    "Draw: one finger draws, two fingers move around. Pen settings: More › View."
                 )
             }
         }
         binding.buttonPicker.setOnClickListener {
             vm.tool.value = if (vm.tool.value == Tool.PICK_COLOR) Tool.SELECT else Tool.PICK_COLOR
             if (vm.tool.value == Tool.PICK_COLOR) {
-                hintOnce("picker", "Color picker: touch the board and drag; lift your finger to pick.")
+                hintOnce("picker", "Color picker: touch and drag over the board, then lift to pick.")
             }
         }
         binding.buttonArrange.setOnClickListener { vm.arrange(Arrangement.OPTIMAL) }
         binding.buttonReset.setOnClickListener { vm.fitAll() }
+        binding.buttonSelect.setOnClickListener {
+            vm.selectMode.value = vm.selectMode.value != true
+            if (vm.selectMode.value == true) {
+                hintOnce(
+                    "select",
+                    "Select: tap images to add or remove them, or drag to box-select."
+                )
+            }
+        }
         binding.buttonDuplicate.setOnClickListener { withSelection { vm.duplicateSelection() } }
         binding.buttonDelete.setOnClickListener { withSelection { vm.deleteSelection() } }
         binding.buttonResetZoom.setOnClickListener { withSelection { vm.resetTransform() } }
@@ -553,19 +561,19 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
         binding.buttonLock.setOnClickListener {
             vm.isLocked.value = vm.isLocked.value != true
             if (vm.isLocked.value == true) {
-                hintOnce("lock", "Board locked: items can't be selected or moved, only the view. Tap Lock again to unlock.")
+                hintOnce("lock", "Board locked: only panning and zooming work. Tap Lock to unlock.")
             }
         }
         binding.buttonCrop.setOnClickListener {
             vm.isCropActive.value = vm.isCropActive.value != true
             if (vm.isCropActive.value == true) {
-                hintOnce("crop", "Crop: select an image, then drag its corner handles. Uncrop restores it.")
+                hintOnce("crop", "Crop: drag the selected image's corner handles. Uncrop restores it.")
             }
         }
         binding.buttonRotate.setOnClickListener {
             vm.rotationEnabled.value = vm.rotationEnabled.value != true
             if (vm.rotationEnabled.value == true) {
-                hintOnce("rotate", "Rotation on: twist with two fingers, or drag the corner handle, to rotate.")
+                hintOnce("rotate", "Rotation on: twist with two fingers, or drag the corner handle.")
             }
         }
 
@@ -859,6 +867,7 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
                 • Long-press an image to add it to (or remove it from) the selection.
                 • Long-press empty space, then drag, to select everything in a box.
                 • Tap empty space to deselect everything.
+                • Or turn on Select: then taps add and remove images, and dragging draws a selection box.
 
                 Moving
                 • Only selected images move: drag a selected image to move the selection, pinch on it to resize.
@@ -870,7 +879,7 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
                 • Long-press any button to see what it does; the ? in the corner shows or hides the labels.
                 • Add picks several images at once; they are arranged automatically.
                 • Arrange, Delete, Duplicate, Uncrop and Reset size act on the selection.
-                • Draw, Color, Crop, Rotate and Lock are switches: blue means on.
+                • Select, Draw, Color, Crop, Rotate and Lock are switches: blue means on.
 
                 More (⋮) has everything else: align, normalize, grid, export, slideshow and settings.
                 """.trimIndent()
