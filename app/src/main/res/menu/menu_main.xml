@@ -94,10 +94,6 @@
                 android:title="Snap to grid" />
             <item android:id="@+id/action_background" android:title="Background color…" />
             <item android:id="@+id/action_pen" android:title="Pen color and width…" />
-            <item
-                android:id="@+id/action_labels"
-                android:checkable="true"
-                android:title="Show button labels" />
         </menu>
     </item>
     <item android:title="Export">

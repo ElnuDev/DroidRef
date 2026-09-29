@@ -134,11 +134,25 @@
                 </LinearLayout>
             </HorizontalScrollView>
 
+            <!-- Low-key toggle for the button labels. -->
+            <ImageButton
+                android:id="@+id/buttonLabels"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_alignParentEnd="true"
+                android:layout_alignParentBottom="true"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/toggle_labels"
+                android:scaleType="center"
+                app:srcCompat="@drawable/ic_help_outline_24" />
+
             <HorizontalScrollView
                 android:id="@+id/toolbarBottom"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_alignParentStart="true"
                 android:layout_alignParentBottom="true"
+                android:layout_toStartOf="@id/buttonLabels"
                 android:scrollbars="none">
 
                 <LinearLayout

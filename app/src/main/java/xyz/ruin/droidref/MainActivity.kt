@@ -569,6 +569,13 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
             }
         }
 
+        binding.buttonLabels.setOnClickListener {
+            val show = !prefs.getBoolean(PREF_LABELS, true)
+            prefs.edit().putBoolean(PREF_LABELS, show).apply()
+            applyButtonLabels(show)
+        }
+        TooltipCompat.setTooltipText(binding.buttonLabels, binding.buttonLabels.contentDescription)
+
         // Long-pressing any toolbar button explains it.
         for (bar in listOf(binding.toolbarTop, binding.toolbarBottom, binding.toolbarHideShowUI)) {
             toolbarButtons(bar).forEach { TooltipCompat.setTooltipText(it, it.contentDescription) }
@@ -638,7 +645,6 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
         menu.findItem(R.id.action_auto_arrange).isChecked = vm.autoArrange.value == true
         menu.findItem(R.id.action_canvas_grayscale).isChecked = vm.canvasGrayscale.value == true
         menu.findItem(R.id.action_snap).isChecked = vm.snapToGrid.value == true
-        menu.findItem(R.id.action_labels).isChecked = prefs.getBoolean(PREF_LABELS, true)
         menu.findItem(
             when (vm.gridMode.value) {
                 GridMode.LINES -> R.id.action_grid_lines
@@ -726,10 +732,6 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
                 vm.backgroundColor.value = it or 0xFF000000.toInt()
             }
             R.id.action_pen -> editPen()
-            R.id.action_labels -> {
-                prefs.edit().putBoolean(PREF_LABELS, !item.isChecked).apply()
-                applyButtonLabels(!item.isChecked)
-            }
             R.id.action_help -> showHelp()
 
             R.id.action_export_selected -> withSelection { exportImages(vm.selected()) }
@@ -815,7 +817,21 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
                 button.updateLayoutParams { height = size }
             }
         }
+        binding.buttonLabels.alpha = if (show) 0.8f else 0.4f
+        positionLabelsButton()
         updateFrameInsets()
+    }
+
+    /** Keeps the ? button vertically centred on the bottom toolbar. */
+    private fun positionLabelsButton() {
+        val bar = resources.getDimensionPixelSize(
+            if (prefs.getBoolean(PREF_LABELS, true)) R.dimen.toolbar_button_labelled else R.dimen.toolbar_button_compact
+        )
+        val size = binding.buttonLabels.layoutParams.height
+        binding.buttonLabels.updateLayoutParams<ViewGroup.MarginLayoutParams> {
+            bottomMargin = systemBars.bottom + (bar - size) / 2
+            marginEnd = systemBars.right + (bar - size) / 4
+        }
     }
 
     /** Explains a mode the first time it's used. */
@@ -832,17 +848,18 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
             .setMessage(
                 """
                 Selecting
-                • Tap an item to select it; tap empty space to deselect.
-                • Long-press an item to add it to (or remove it from) the selection.
+                • Tap an image to select it; tap it again to deselect it.
+                • Long-press an image to add it to (or remove it from) the selection.
                 • Long-press empty space, then drag, to select everything in a box.
+                • Tap empty space to deselect everything.
 
                 Moving
-                • Drag to move the selection; pinch on it to resize.
-                • Drag or pinch empty space to move around the board.
-                • Double-tap an item to zoom to it; again to zoom back. Double-tap a note to edit it.
+                • Only selected images move: drag a selected image to move the selection, pinch on it to resize.
+                • Dragging or pinching anywhere else, even on other images, moves around the board.
+                • Double-tap an image to zoom to it; again to zoom back. Double-tap a note to edit it.
 
                 Toolbar
-                • Long-press any button to see what it does.
+                • Long-press any button to see what it does; the ? in the corner shows or hides the labels.
                 • Add picks several images at once; they are arranged automatically.
                 • Arrange, Delete, Duplicate, Uncrop and Reset size act on the selection.
                 • Draw, Color, Crop, Rotate and Lock are switches: blue means on.
@@ -873,8 +890,8 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
             binding.toolbarBottom.updateLayoutParams<ViewGroup.MarginLayoutParams> {
                 bottomMargin = systemBars.bottom
                 marginStart = systemBars.left
-                marginEnd = systemBars.right
             }
+            positionLabelsButton()
             updateFrameInsets()
             insets
         }
@@ -894,6 +911,7 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
         val visibility = if (hidden) View.GONE else View.VISIBLE
         binding.toolbarTop.visibility = visibility
         binding.toolbarBottom.visibility = visibility
+        binding.buttonLabels.visibility = visibility
         binding.buttonMenu.visibility = visibility
         val icon = if (hidden) R.drawable.ic_baseline_visibility_off_24 else R.drawable.ic_baseline_visibility_24
         binding.buttonHideShowUI.isSelected = hidden

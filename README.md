@@ -21,16 +21,17 @@ Modelled on PureRef:
 
 | Gesture | Action |
 | --- | --- |
-| Tap an item | Select it |
-| Long-press an item | Add it to / remove it from the selection |
+| Tap an image | Select it; tap again to deselect |
+| Long-press an image | Add it to / remove it from the selection (keep holding to drag) |
 | Long-press empty canvas, then drag | Rubber-band select |
-| Drag an item | Move the selection |
-| Pinch on an item | Scale the selection (and rotate, if rotation is on) |
-| Drag / pinch on empty canvas | Pan / zoom |
-| Double-tap an item | Zoom to it; again to go back. Edits notes. |
+| Drag / pinch a selected image | Move / scale the selection (and rotate, if rotation is on) |
+| Drag / pinch anywhere else | Pan / zoom the board, even over unselected images |
+| Double-tap an image | Zoom to it; again to go back. Edits notes. |
 | Long-press a toolbar button | Show what it does |
 
-Everything else, including folder import and pen settings, is in the More (⋮) menu; More › Help repeats these gestures in the app. Button labels can be hidden under More › View.
+Only selected images respond to dragging, so a board covered wall to wall in images can still be panned and zoomed.
+
+Everything else, including folder import and pen settings, is in the More (⋮) menu; More › Help repeats these gestures in the app. The ? in the bottom corner shows or hides the button labels.
 
 ## Development
 

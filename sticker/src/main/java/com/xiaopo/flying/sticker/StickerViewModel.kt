@@ -503,26 +503,28 @@ open class StickerViewModel :
             }
         }
 
-        val hit = findHandlingSticker()
-        if (hit != null) {
+        // Only selected items can be dragged or pinched; a gesture starting
+        // anywhere else (even on an unselected image) moves the board. That
+        // keeps the board navigable when images cover it wall to wall.
+        selectionBeforePress = LinkedHashSet(selection)
+        val hitSelected = findSelectedSticker()
+        if (hitSelected != null) {
             gesture = Gesture.PRESS_ITEM
-            pressed = hit
-            selectionBeforePress = LinkedHashSet(selection)
-            if (hit !in selection) {
-                setSelection(listOf(hit))
-            }
-            if (bringToFrontCurrentSticker.value == true) {
-                val group = groupOf(hit).toSet()
-                val front = items.filter { it in group }
-                items.removeAll(group)
-                items.addAll(front)
-            }
-            stickerOperationListener.onStickerTouchedDown(hit)
+            pressed = hitSelected
+            stickerOperationListener.onStickerTouchedDown(hitSelected)
         } else {
             gesture = Gesture.PRESS_CANVAS
-            pressed = null
+            pressed = findHandlingSticker()
         }
         scheduleLongPress(view, event)
+    }
+
+    private fun bringToFront(sticker: Sticker) {
+        if (bringToFrontCurrentSticker.value != true) return
+        val group = groupOf(sticker).toSet()
+        val front = items.filter { it in group }
+        items.removeAll(group)
+        items.addAll(front)
     }
 
     private fun onPointerDown(event: MotionEvent) {
@@ -741,12 +743,15 @@ open class StickerViewModel :
                 history.commit(items)
                 items.forEach { it.recalcFinalMatrix() }
             }
-            Gesture.PRESS_ITEM -> if (!longPressFired) onTapItem(pressed!!)
+            Gesture.PRESS_ITEM -> if (!longPressFired) onTapSelected(pressed!!)
             Gesture.MOVE_ITEMS, Gesture.PINCH_ITEMS -> {
                 history.commit(items)
                 pressed?.let { stickerOperationListener.onStickerDragFinished(it) }
             }
-            Gesture.PRESS_CANVAS -> if (!longPressFired && isLocked.value != true) clearSelection()
+            Gesture.PRESS_CANVAS -> if (!longPressFired && isLocked.value != true) {
+                val item = pressed
+                if (item == null) clearSelection() else onTapUnselected(item)
+            }
             Gesture.MARQUEE -> marquee = null
             Gesture.PAN, Gesture.PINCH_CANVAS, Gesture.NONE -> {}
         }
@@ -770,25 +775,42 @@ open class StickerViewModel :
         currentIcon.value = null
     }
 
-    private fun onTapItem(sticker: Sticker) {
-        // Tapping one item of a multi-selection narrows the selection to it.
-        if (sticker in selectionBeforePress && selectionBeforePress.size > groupOf(sticker).size) {
-            setSelection(listOf(sticker))
-        }
+    /** Tapping an unselected item selects it (alone). */
+    private fun onTapUnselected(sticker: Sticker) {
+        setSelection(listOf(sticker))
+        bringToFront(sticker)
         stickerOperationListener.onStickerClicked(sticker)
-        val now = SystemClock.uptimeMillis()
-        if (lastTapSticker === sticker && now - lastTapTime < ViewConfiguration.getDoubleTapTimeout()) {
-            lastTapSticker = null
+        rememberTap(sticker)
+    }
+
+    /** Tapping a selected item deselects it, unless it's the second tap of a double tap. */
+    private fun onTapSelected(sticker: Sticker) {
+        if (isDoubleTap(sticker)) {
             stickerOperationListener.onStickerDoubleTapped(sticker)
             if (sticker is NoteSticker && !sticker.isLocked) {
                 boardListener?.onEditNote(sticker)
             } else {
                 focus(listOf(sticker))
             }
-        } else {
-            lastTapSticker = sticker
-            lastTapTime = now
+            return
         }
+        val remaining = LinkedHashSet(selection)
+        remaining.removeAll(groupOf(sticker).toSet())
+        setSelection(remaining)
+        stickerOperationListener.onStickerClicked(sticker)
+        rememberTap(sticker)
+    }
+
+    private fun rememberTap(sticker: Sticker) {
+        lastTapSticker = sticker
+        lastTapTime = SystemClock.uptimeMillis()
+    }
+
+    private fun isDoubleTap(sticker: Sticker): Boolean {
+        val double = lastTapSticker === sticker &&
+                SystemClock.uptimeMillis() - lastTapTime < ViewConfiguration.getDoubleTapTimeout()
+        if (double) lastTapSticker = null
+        return double
     }
 
     private fun scheduleLongPress(view: View, event: MotionEvent) {
@@ -824,7 +846,15 @@ open class StickerViewModel :
                 setSelection(updated)
                 selectionBeforePress = LinkedHashSet(selection)
             }
-            Gesture.PRESS_CANVAS -> if (isLocked.value != true) {
+            Gesture.PRESS_CANVAS -> if (isLocked.value != true && pressed != null) {
+                // Long press on an unselected item adds it to the selection;
+                // keep holding and drag to move the selection straight away.
+                view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                val sticker = pressed!!
+                setSelection(selection + groupOf(sticker))
+                bringToFront(sticker)
+                gesture = Gesture.PRESS_ITEM
+            } else if (isLocked.value != true) {
                 // Long press on empty canvas starts a rubber-band selection.
                 view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                 selectionBeforePress = LinkedHashSet(selection)
@@ -1000,6 +1030,13 @@ open class StickerViewModel :
             }
         }
         return null
+    }
+
+    /** The topmost selected item under the touch point. */
+    private fun findSelectedSticker(): Sticker? {
+        tmp[0] = downX
+        tmp[1] = downY
+        return items.lastOrNull { it in selection && it.isVisible && it.containsCropped(tmp) }
     }
 
     /** The topmost item under the touch point. */
