@@ -62,9 +62,11 @@ class StickerViewSerializer {
 
     /**
      * Writes a board. Safe off the main thread as long as [stickers] are copies
-     * nobody else mutates.
+     * nobody else mutates. Without [embedImages] only the image keys are
+     * written, for boards read back on this device while [BlobStore] still has
+     * the images (the autosave).
      */
-    fun write(out: OutputStream, canvasMatrix: Matrix, stickers: List<Sticker>) {
+    fun write(out: OutputStream, canvasMatrix: Matrix, stickers: List<Sticker>, embedImages: Boolean = true) {
         MessagePack.newDefaultPacker(BufferedOutputStream(out)).use { p ->
             p.packInt(SERIAL_VERSION)
             p.packLong(System.currentTimeMillis())
@@ -75,9 +77,13 @@ class StickerViewSerializer {
             p.packArrayHeader(keys.size)
             for (key in keys) {
                 p.packString(key)
-                val bytes = BlobStore.read(key)
-                p.packBinaryHeader(bytes.size)
-                p.writePayload(bytes)
+                if (embedImages) {
+                    val bytes = BlobStore.read(key)
+                    p.packBinaryHeader(bytes.size)
+                    p.writePayload(bytes)
+                } else {
+                    p.packNil()
+                }
             }
 
             p.packArrayHeader(stickers.size)
@@ -180,13 +186,21 @@ class StickerViewSerializer {
     private fun readV2(u: MessageUnpacker): Board {
         u.unpackLong() // date
         val canvasMatrix = u.unpackMatrix()
-        val images = HashMap<String, Image?>()
+        // Saved key to where the image is in BlobStore now.
+        val stored = HashMap<String, String>()
         repeat(u.unpackArrayHeader()) {
             val savedKey = u.unpackString()
-            val bytes = u.readPayload(u.unpackBinaryHeader())
-            val key = BlobStore.put(bytes)
-            images[savedKey] = ImageCache.prepare(key, bytes)?.let { Image(key, it) }
+            if (u.tryUnpackNil()) {
+                // Not embedded: the image is in BlobStore already, if it survived.
+                if (BlobStore.file(savedKey).exists()) {
+                    stored[savedKey] = savedKey
+                }
+            } else {
+                stored[savedKey] = BlobStore.put(u.readPayload(u.unpackBinaryHeader()))
+            }
         }
+        val sizes = ImageCache.prepareAll(stored.values.toSet())
+        val images = stored.mapValues { (_, key) -> sizes[key]?.let { Image(key, it) } }
         val stickers = ArrayList<Sticker>()
         repeat(u.unpackArrayHeader()) {
             readItem(u, images)?.let(stickers::add)

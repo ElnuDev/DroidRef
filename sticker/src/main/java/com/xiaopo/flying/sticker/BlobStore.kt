@@ -20,9 +20,13 @@ object BlobStore {
         dir = directory
     }
 
-    /** Drop blobs left over from a previous process; call before loading anything. */
-    fun clear() {
-        dir?.listFiles()?.forEach { it.delete() }
+    /** Drops every blob except [keys], e.g. those left over from a previous process. */
+    fun retain(keys: Set<String>) {
+        dir?.listFiles()?.forEach {
+            if (it.name !in keys) {
+                it.delete()
+            }
+        }
     }
 
     fun file(key: String) = File(checkNotNull(dir) { "BlobStore not initialized" }, key)
@@ -84,6 +88,12 @@ object ImageLoader {
     fun size(bytes: ByteArray): Pair<Int, Int>? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        return if (bounds.outWidth > 0 && bounds.outHeight > 0) bounds.outWidth to bounds.outHeight else null
+    }
+
+    fun size(file: File): Pair<Int, Int>? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.path, bounds)
         return if (bounds.outWidth > 0 && bounds.outHeight > 0) bounds.outWidth to bounds.outHeight else null
     }
 

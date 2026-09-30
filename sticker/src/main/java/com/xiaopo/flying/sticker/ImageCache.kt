@@ -14,7 +14,11 @@ import android.os.Process
 import android.os.SystemClock
 import android.util.Log
 import android.util.LruCache
+import java.io.File
+import java.io.IOException
+import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
 import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.LinkedBlockingDeque
 import java.util.concurrent.atomic.AtomicBoolean
@@ -73,6 +77,8 @@ object ImageCache {
     private val main = Handler(Looper.getMainLooper())
     private val notifyPending = AtomicBoolean()
     private var started = false
+    // Largest resident mip of each image, so reopening a board needn't decode it in full.
+    private var thumbDir: File? = null
 
     private fun newCache(bytes: Long) = object : LruCache<Level, Bitmap>(bytes.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()) {
         override fun sizeOf(key: Level, value: Bitmap) = value.allocationByteCount
@@ -86,6 +92,7 @@ object ImageCache {
         val info = ActivityManager.MemoryInfo()
         context.getSystemService(ActivityManager::class.java).getMemoryInfo(info)
         cache = newCache((info.totalMem / 20).coerceIn(96L shl 20, 384L shl 20))
+        thumbDir = File(context.cacheDir, "thumbs").apply { mkdirs() }
         repeat(WORKERS) { n ->
             Thread({
                 Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
@@ -113,17 +120,28 @@ object ImageCache {
      */
     fun prepare(key: String, bytes: ByteArray? = null): Pair<Int, Int>? {
         pyramids[key]?.let { return ImageLoader.canonicalSize(it.width, it.height) }
-        val data = bytes ?: BlobStore.read(key)
-        val (width, height) = ImageLoader.size(data) ?: return null
+        val (width, height) = (if (bytes != null) ImageLoader.size(bytes) else ImageLoader.size(BlobStore.file(key)))
+            ?: return null
         var sample = 1
         while (max(width, height) / sample > RESIDENT_SIDE) {
             sample *= 2
         }
-        val options = BitmapFactory.Options().apply {
-            inSampleSize = sample
-            inScaled = false
+        val noScaling = BitmapFactory.Options().apply { inScaled = false }
+        val thumb = thumbDir?.let { File(it, key) }
+        val saved = thumb?.takeIf { sample > 1 && it.exists() }?.let { BitmapFactory.decodeFile(it.path, noScaling) }
+        var level = saved ?: run {
+            val data = bytes ?: BlobStore.read(key)
+            val options = BitmapFactory.Options().apply {
+                inSampleSize = sample
+                inScaled = false
+            }
+            val decoded = BitmapFactory.decodeByteArray(data, 0, data.size, options) ?: return null
+            if (thumb != null && sample > 1) {
+                // Reopening the board then decodes this instead of the whole image.
+                saveThumb(decoded, thumb)
+            }
+            decoded
         }
-        var level = BitmapFactory.decodeByteArray(data, 0, data.size, options) ?: return null
         val mips = ArrayList<Bitmap>()
         while (true) {
             val next = if (max(level.width, level.height) / 2 >= MIN_SIDE) {
@@ -136,9 +154,35 @@ object ImageCache {
         return ImageLoader.canonicalSize(width, height)
     }
 
+    /** [prepare]s blobs already in [BlobStore], several at a time. */
+    fun prepareAll(keys: Collection<String>): Map<String, Pair<Int, Int>?> {
+        val pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors().coerceIn(1, 4))
+        try {
+            return keys.associateWith { key -> pool.submit(Callable { prepare(key) }) }
+                .mapValues { it.value.get() }
+        } finally {
+            pool.shutdown()
+        }
+    }
+
+    private fun saveThumb(bitmap: Bitmap, file: File) {
+        try {
+            val tmp = File(file.path + ".tmp")
+            tmp.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            tmp.renameTo(file)
+        } catch (e: IOException) {
+            Log.w(TAG, "Could not save thumbnail", e)
+        }
+    }
+
     /** Forgets images that are no longer on the board. */
     fun retain(keys: Set<String>) {
         pyramids.keys.retainAll(keys)
+        thumbDir?.listFiles()?.forEach {
+            if (it.name !in keys) {
+                it.delete()
+            }
+        }
         for (level in cache.snapshot().keys) {
             if (level.key !in keys) {
                 cache.remove(level)

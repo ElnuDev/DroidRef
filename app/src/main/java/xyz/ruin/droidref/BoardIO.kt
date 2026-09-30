@@ -140,9 +140,10 @@ class BoardIO(private val context: Context) {
         }
     }
 
-    fun writeBoard(file: File, canvasMatrix: Matrix, stickers: List<Sticker>) {
+    /** Writes the autosave, which refers to images in [BlobStore] rather than embedding them. */
+    fun writeAutosave(file: File, canvasMatrix: Matrix, stickers: List<Sticker>) {
         val tmp = File(file.path + ".tmp")
-        tmp.outputStream().use { StickerViewSerializer().write(it, canvasMatrix, stickers) }
+        tmp.outputStream().use { StickerViewSerializer().write(it, canvasMatrix, stickers, embedImages = false) }
         if (!tmp.renameTo(file)) {
             throw IOException("Could not replace $file")
         }

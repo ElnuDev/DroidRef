@@ -132,10 +132,8 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
         applyButtonLabels(prefs.getBoolean(PREF_LABELS, true))
 
         if (!stickerViewModel.sessionStarted) {
-            // Fresh process: nothing references old blobs, so start clean and
-            // bring back the board from last time.
+            // Fresh process: bring back the board from last time.
             stickerViewModel.sessionStarted = true
-            BlobStore.clear()
             restoreAutosave {
                 if (savedInstanceState == null) {
                     handleIntent(intent)
@@ -401,7 +399,7 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
         val file = File(filesDir, AUTOSAVE_FILE)
         autosaveExecutor.execute {
             try {
-                if (copies.isEmpty()) file.delete() else io.writeBoard(file, camera, copies)
+                if (copies.isEmpty()) file.delete() else io.writeAutosave(file, camera, copies)
             } catch (e: Exception) {
                 Timber.e(e, "Autosave failed")
             }
@@ -411,9 +409,14 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
     private var restoring = false
     private val savedCamera = Matrix()
 
+    /**
+     * Loads the autosave, then drops the images left over from the previous
+     * process that it doesn't use (nothing else refers to them yet).
+     */
     private fun restoreAutosave(then: () -> Unit) {
         val file = File(filesDir, AUTOSAVE_FILE)
         if (!file.exists()) {
+            BlobStore.retain(emptySet())
             then()
             return
         }
@@ -428,6 +431,7 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
                 }
                 stickerViewModel.loadBoard(board)
                 stickerViewModel.currentFileName = prefs.getString(PREF_CURRENT_FILE, null)
+                BlobStore.retain(board.stickers.filterIsInstance<DrawableSticker>().mapTo(HashSet()) { it.blobKey })
             } catch (e: Exception) {
                 Timber.e(e)
                 toast("Failed to load previous board state.")
