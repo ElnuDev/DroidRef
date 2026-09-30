@@ -10,6 +10,7 @@ import android.graphics.RectF
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
+import com.xiaopo.flying.sticker.ImageCache
 import com.xiaopo.flying.sticker.Sticker
 import kotlin.math.min
 
@@ -49,8 +50,21 @@ class SlideshowDialog(
         }
         private val ring = RectF()
 
+        private val redraw = Runnable { invalidate() }
+
         init {
             contentDescription = "Slideshow"
+        }
+
+        override fun onAttachedToWindow() {
+            super.onAttachedToWindow()
+            // Redraw when a sharper version of the image has loaded.
+            ImageCache.addListener(redraw)
+        }
+
+        override fun onDetachedFromWindow() {
+            ImageCache.removeListener(redraw)
+            super.onDetachedFromWindow()
         }
 
         private fun elapsed() =

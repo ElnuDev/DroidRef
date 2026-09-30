@@ -9,7 +9,6 @@ import android.graphics.ColorMatrixColorFilter
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.RectF
-import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -18,6 +17,7 @@ import android.provider.MediaStore
 import android.provider.OpenableColumns
 import com.xiaopo.flying.sticker.BlobStore
 import com.xiaopo.flying.sticker.DrawableSticker
+import com.xiaopo.flying.sticker.ImageCache
 import com.xiaopo.flying.sticker.ImageLoader
 import com.xiaopo.flying.sticker.Sticker
 import com.xiaopo.flying.sticker.StickerViewSerializer
@@ -37,7 +37,6 @@ import kotlin.math.sqrt
  */
 class BoardIO(private val context: Context) {
     private val resolver get() = context.contentResolver
-    private val resources get() = context.resources
 
     // region Importing
 
@@ -63,17 +62,13 @@ class BoardIO(private val context: Context) {
     }
 
     fun imageFromBytes(bytes: ByteArray, name: String?, source: String? = null): Sticker? {
-        val bitmap = ImageLoader.decode(bytes) ?: return null
+        ImageLoader.size(bytes) ?: return null
         val key = BlobStore.put(bytes)
-        return DrawableSticker(BitmapDrawable(resources, bitmap), key).also {
+        val (width, height) = ImageCache.prepare(key, bytes) ?: return null
+        return DrawableSticker(key, width, height).also {
             it.name = name
             it.source = source
         }
-    }
-
-    fun imageFromBitmap(bitmap: Bitmap, name: String?): Sticker {
-        val fitted = ImageLoader.fit(bitmap)
-        return DrawableSticker(BitmapDrawable(resources, fitted), BlobStore.putBitmap(fitted)).also { it.name = name }
     }
 
     /** Images directly inside a folder picked with OpenDocumentTree, sorted by name. */
@@ -130,11 +125,11 @@ class BoardIO(private val context: Context) {
     // region Boards
 
     fun readBoard(uri: Uri): StickerViewSerializer.Board =
-        resolver.openInputStream(uri)?.use { StickerViewSerializer().read(it, resources) }
+        resolver.openInputStream(uri)?.use { StickerViewSerializer().read(it) }
             ?: throw IOException("Could not open $uri")
 
     fun readBoard(file: File): StickerViewSerializer.Board =
-        file.inputStream().use { StickerViewSerializer().read(it, resources) }
+        file.inputStream().use { StickerViewSerializer().read(it) }
 
     fun writeBoard(uri: Uri, canvasMatrix: Matrix, stickers: List<Sticker>) {
         // Write fully to memory first so a failure can't truncate the existing file.

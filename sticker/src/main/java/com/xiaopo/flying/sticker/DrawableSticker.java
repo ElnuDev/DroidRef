@@ -1,15 +1,14 @@
 package com.xiaopo.flying.sticker;
 
-import android.content.res.Resources;
 import android.graphics.*;
-import android.graphics.drawable.BitmapDrawable;
-import android.graphics.drawable.Drawable;
 
 import androidx.annotation.IntRange;
 import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
 
 /**
+ * An image on the board. Holds no pixels itself: {@link ImageCache} supplies
+ * them at the resolution the image is shown at.
+ *
  * @author wupanjie
  */
 public class DrawableSticker extends Sticker {
@@ -21,32 +20,32 @@ public class DrawableSticker extends Sticker {
         GRAYSCALE_FILTER = new ColorMatrixColorFilter(matrix);
     }
 
-    private Drawable drawable;
-    // Key of the original image data in BlobStore; created lazily for icons etc.
-    @Nullable
+    // Key of the original image data in BlobStore.
+    @NonNull
     private String blobKey;
+    private int width;
+    private int height;
+    private final Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
+    private final RectF dst = new RectF();
 
-    public DrawableSticker(Drawable drawable) {
-        this(drawable, null);
-    }
-
-    public DrawableSticker(Drawable drawable, @Nullable String blobKey) {
-        this.drawable = drawable;
-        this.realBounds = new Rect(0, 0, getWidth(), getHeight());
-        this.croppedBounds = new RectF(this.realBounds);
+    /**
+     * An image placed at {@code width} x {@code height}, the size its crop is
+     * measured in (see {@link ImageLoader#canonicalSize}).
+     */
+    public DrawableSticker(@NonNull String blobKey, int width, int height) {
         this.blobKey = blobKey;
-    }
-
-    public DrawableSticker(DrawableSticker other) {
-        this(other, false);
+        this.width = width;
+        this.height = height;
+        this.realBounds = new Rect(0, 0, width, height);
+        this.croppedBounds = new RectF(this.realBounds);
     }
 
     private DrawableSticker(DrawableSticker other, boolean sameIdentity) {
         super(other);
         adoptIdentity(other, sameIdentity);
-        Drawable.ConstantState state = other.drawable.getConstantState();
-        this.drawable = state != null ? state.newDrawable().mutate() : other.drawable;
         this.blobKey = other.blobKey;
+        this.width = other.width;
+        this.height = other.height;
     }
 
     @NonNull
@@ -62,18 +61,10 @@ public class DrawableSticker extends Sticker {
                 || croppedBounds.bottom != realBounds.bottom);
     }
 
-    @Nullable
-    public Bitmap getBitmap() {
-        if (drawable instanceof BitmapDrawable) {
-            return ((BitmapDrawable) drawable).getBitmap();
-        }
-        return null;
-    }
-
-    /** The visible (cropped) pixels, unflipped. */
+    /** The visible (cropped) pixels at full resolution, unflipped. Decodes, so call off the main thread when possible. */
     @NonNull
     public Bitmap getCroppedBitmap() {
-        Bitmap bitmap = StickerViewSerializer.Companion.drawableToBitmap(this.drawable);
+        Bitmap bitmap = ImageCache.INSTANCE.loadFull(blobKey, width, height);
         if (!isCropped()) {
             return bitmap;
         }
@@ -81,10 +72,14 @@ public class DrawableSticker extends Sticker {
         int top = Math.max(0, (int) croppedBounds.top);
         int width = Math.min(bitmap.getWidth() - left, Math.max(1, (int) croppedBounds.width()));
         int height = Math.min(bitmap.getHeight() - top, Math.max(1, (int) croppedBounds.height()));
-        return Bitmap.createBitmap(bitmap, left, top, width, height);
+        Bitmap cropped = Bitmap.createBitmap(bitmap, left, top, width, height);
+        if (cropped != bitmap) {
+            bitmap.recycle();
+        }
+        return cropped;
     }
 
-    public void cropDestructively(Resources resources) {
+    public void cropDestructively() {
         if (!isCropped()) {
             return;
         }
@@ -94,20 +89,17 @@ public class DrawableSticker extends Sticker {
         // the crop corner keeps the image exactly where it was.
         getMatrix().preTranslate(croppedBounds.left - realBounds.left,
                 croppedBounds.top - realBounds.top);
-        this.drawable = new BitmapDrawable(resources, cropped);
-        this.realBounds = new Rect(0, 0, getWidth(), getHeight());
-        this.croppedBounds = new RectF(this.realBounds);
+        String key = BlobStore.INSTANCE.putBitmap(cropped);
+        ImageCache.INSTANCE.prepare(key, null);
+        setImage(key, cropped.getWidth(), cropped.getHeight());
+        cropped.recycle();
         this.recalcFinalMatrix();
-        this.blobKey = BlobStore.INSTANCE.putBitmap(cropped);
     }
 
     /** Replaces the image, keeping the item's place, size and properties. */
-    public void replaceDrawable(@NonNull Drawable replacement, @Nullable String key) {
+    public void replaceImage(@NonNull String key, int width, int height) {
         RectF before = getWorldBounds();
-        this.drawable = replacement;
-        this.realBounds = new Rect(0, 0, getWidth(), getHeight());
-        this.croppedBounds = new RectF(this.realBounds);
-        this.blobKey = key;
+        setImage(key, width, height);
         RectF after = getWorldBounds();
         float scale = Math.min(before.width() / Math.max(1f, after.width()),
                 before.height() / Math.max(1f, after.height()));
@@ -116,29 +108,23 @@ public class DrawableSticker extends Sticker {
         recalcFinalMatrix();
     }
 
-    /**
-     * Key of the original image data in {@link BlobStore}, encoding the current
-     * pixels as PNG if the image did not come from a file.
-     */
+    private void setImage(@NonNull String key, int width, int height) {
+        this.blobKey = key;
+        this.width = width;
+        this.height = height;
+        this.realBounds = new Rect(0, 0, width, height);
+        this.croppedBounds = new RectF(this.realBounds);
+    }
+
+    /** Key of the original image data in {@link BlobStore}. */
     @NonNull
     public String getBlobKey() {
-        if (blobKey == null) {
-            blobKey = BlobStore.INSTANCE.putBitmap(
-                    StickerViewSerializer.Companion.drawableToBitmap(this.drawable));
-        }
         return blobKey;
     }
 
-    @NonNull
-    @Override
-    public Drawable getDrawable() {
-        return drawable;
-    }
-
-    @Override
-    public DrawableSticker setDrawable(@NonNull Drawable drawable) {
-        this.drawable = drawable;
-        return this;
+    /** On-screen width of the whole (uncropped) image under the current matrices. */
+    public float getOnScreenWidth() {
+        return getMatrixScale(getFinalMatrix()) * width;
     }
 
     @Override
@@ -146,34 +132,39 @@ public class DrawableSticker extends Sticker {
         canvas.save();
         canvas.concat(getFinalMatrix());
         canvas.clipRect(croppedBounds);
-        drawable.setBounds(realBounds);
-        drawable.setAlpha(getOpacity());
-        drawable.setColorFilter(isGrayscale() ? GRAYSCALE_FILTER : null);
-        drawable.setFilterBitmap(isSmooth());
-        drawable.draw(canvas);
+        paint.setAlpha(getOpacity());
+        paint.setColorFilter(isGrayscale() ? GRAYSCALE_FILTER : null);
+        paint.setFilterBitmap(isSmooth());
+        dst.set(realBounds);
+        ImageCache.INSTANCE.draw(canvas, blobKey, getOnScreenWidth(), dst, paint);
         canvas.restore();
+    }
+
+    /** Starts loading the pixels drawing at the current scale will need. */
+    public void prefetch() {
+        ImageCache.INSTANCE.prefetch(blobKey, getOnScreenWidth());
     }
 
     @NonNull
     @Override
     public DrawableSticker setAlpha(@IntRange(from = 0, to = 255) int alpha) {
-        drawable.setAlpha(alpha);
+        setOpacity(alpha);
         return this;
     }
 
     @Override
     public int getWidth() {
-        return drawable.getIntrinsicWidth();
+        return width;
     }
 
     @Override
     public int getHeight() {
-        return drawable.getIntrinsicHeight();
+        return height;
     }
 
     @NonNull
     @Override
     public String stateSignature() {
-        return super.stateSignature() + '|' + System.identityHashCode(getBitmap()) + blobKey;
+        return super.stateSignature() + '|' + blobKey;
     }
 }

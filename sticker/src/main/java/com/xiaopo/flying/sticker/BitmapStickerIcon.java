@@ -4,11 +4,15 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.PointF;
+import android.graphics.Rect;
+import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 import android.view.MotionEvent;
 
 import androidx.annotation.DrawableRes;
 import androidx.annotation.IntDef;
+import androidx.annotation.IntRange;
+import androidx.annotation.NonNull;
 import androidx.core.content.ContextCompat;
 
 import java.lang.annotation.Retention;
@@ -17,7 +21,7 @@ import java.lang.annotation.RetentionPolicy;
 /**
  * @author wupanjie
  */
-public class BitmapStickerIcon extends DrawableSticker implements StickerIconEvent {
+public class BitmapStickerIcon extends Sticker implements StickerIconEvent {
     public static final float DEFAULT_ICON_RADIUS = 35f;
     public static final float DEFAULT_ICON_EXTRA_RADIUS = 10f;
 
@@ -43,15 +47,18 @@ public class BitmapStickerIcon extends DrawableSticker implements StickerIconEve
 
     private StickerIconEvent iconEvent;
 
+    private final Drawable drawable;
+
     public BitmapStickerIcon(Drawable drawable, @Gravity int gravity) {
-        super(drawable);
+        this.drawable = drawable;
+        this.realBounds = new Rect(0, 0, getWidth(), getHeight());
+        this.croppedBounds = new RectF(this.realBounds);
         this.position = gravity;
     }
 
     public BitmapStickerIcon(Context context, @DrawableRes int drawableRes, @Gravity int gravity) {
-        super(ContextCompat.getDrawable(context, drawableRes));
+        this(ContextCompat.getDrawable(context, drawableRes), gravity);
         this.iconResName = context.getResources().getResourceEntryName(drawableRes);
-        this.position = gravity;
     }
 
     public void draw(Canvas canvas, Paint paint) {
@@ -59,7 +66,41 @@ public class BitmapStickerIcon extends DrawableSticker implements StickerIconEve
         canvas.concat(getCanvasMatrix());
         canvas.drawCircle(x, y, iconRadius, paint);
         canvas.restore();
-        super.draw(canvas);
+        draw(canvas);
+    }
+
+    @Override
+    public void draw(@NonNull Canvas canvas) {
+        canvas.save();
+        canvas.concat(getFinalMatrix());
+        drawable.setBounds(realBounds);
+        drawable.setAlpha(getOpacity());
+        drawable.draw(canvas);
+        canvas.restore();
+    }
+
+    /** Icons are never copied: they belong to the view, not the board. */
+    @NonNull
+    @Override
+    public Sticker copy(boolean sameIdentity) {
+        throw new UnsupportedOperationException("Icons can't be copied");
+    }
+
+    @Override
+    public int getWidth() {
+        return drawable.getIntrinsicWidth();
+    }
+
+    @Override
+    public int getHeight() {
+        return drawable.getIntrinsicHeight();
+    }
+
+    @NonNull
+    @Override
+    public BitmapStickerIcon setAlpha(@IntRange(from = 0, to = 255) int alpha) {
+        drawable.setAlpha(alpha);
+        return this;
     }
 
     public float getX() {

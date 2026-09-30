@@ -7,8 +7,6 @@ import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
-import android.graphics.drawable.ColorDrawable
-import android.graphics.drawable.Drawable
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
@@ -127,10 +125,6 @@ class NoteSticker(
     override fun getHeight() = boxHeight
 
     override fun isCroppable() = false
-
-    override fun setDrawable(drawable: Drawable): Sticker = this
-
-    override fun getDrawable(): Drawable = ColorDrawable(backgroundColor)
 
     override fun setAlpha(alpha: Int): Sticker {
         opacity = alpha

@@ -124,6 +124,7 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
 
         io = BoardIO(this)
         BlobStore.init(File(filesDir, "blobs"))
+        ImageCache.init(this)
 
         setupIcons()
         setupButtons()
@@ -317,7 +318,7 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
                 return@runBusy
             }
             stickerViewModel.change {
-                target.replaceDrawable(loaded.drawable, loaded.blobKey)
+                target.replaceImage(loaded.blobKey, loaded.width, loaded.height)
                 target.name = loaded.name
                 target.source = null
             }
@@ -713,7 +714,7 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
                 }
             }
             R.id.action_open_source -> openSource()
-            R.id.action_crop_selected -> withSelection { vm.cropDestructively(resources, false) }
+            R.id.action_crop_selected -> withSelection { vm.cropDestructively(false) }
 
             R.id.action_arrange_optimal -> vm.arrange(Arrangement.OPTIMAL)
             R.id.action_arrange_name -> vm.arrange(Arrangement.NAME)
@@ -759,7 +760,7 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
             R.id.action_crop_all -> confirm(
                 "Crop all images permanently? This discards the cropped-away pixels, " +
                         "which saves space and improves performance."
-            ) { vm.cropDestructively(resources, true) }
+            ) { vm.cropDestructively(true) }
             else -> return false
         }
         return true

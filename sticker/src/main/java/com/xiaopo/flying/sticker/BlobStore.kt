@@ -25,7 +25,7 @@ object BlobStore {
         dir?.listFiles()?.forEach { it.delete() }
     }
 
-    private fun file(key: String) = File(checkNotNull(dir) { "BlobStore not initialized" }, key)
+    fun file(key: String) = File(checkNotNull(dir) { "BlobStore not initialized" }, key)
 
     fun put(bytes: ByteArray): String {
         val key = sha256(bytes)
@@ -80,10 +80,28 @@ object ImageLoader {
     /** Cap on decoded pixels per image; larger images are downsampled for display. */
     const val MAX_PIXELS = 2560 * 2560
 
+    /** Pixel size of image data without decoding it, or null if it isn't an image. */
+    fun size(bytes: ByteArray): Pair<Int, Int>? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        return if (bounds.outWidth > 0 && bounds.outHeight > 0) bounds.outWidth to bounds.outHeight else null
+    }
+
     /**
-     * Decodes image data, downsampling huge images. Deterministic for the same
-     * bytes, so crops saved against the decoded size stay valid on reload.
+     * Size of the coordinate space an image is placed and cropped in: its own
+     * size, scaled down to at most [MAX_PIXELS]. Only [ImageCache] decides which
+     * pixels actually get drawn into it.
      */
+    fun canonicalSize(width: Int, height: Int): Pair<Int, Int> {
+        val total = width.toLong() * height
+        if (total <= MAX_PIXELS) {
+            return width to height
+        }
+        val scale = Math.sqrt(MAX_PIXELS.toDouble() / total)
+        return (width * scale).toInt().coerceAtLeast(1) to (height * scale).toInt().coerceAtLeast(1)
+    }
+
+    /** Decodes image data at full resolution, downsampling huge images to about [MAX_PIXELS]. */
     fun decode(bytes: ByteArray): Bitmap? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)

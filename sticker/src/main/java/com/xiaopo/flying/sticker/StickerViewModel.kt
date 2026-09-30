@@ -358,6 +358,11 @@ open class StickerViewModel :
     }
 
     fun removeAllStickers() {
+        clearBoard()
+        ImageCache.retain(emptySet())
+    }
+
+    private fun clearBoard() {
         items.clear()
         selection.clear()
         onSelectionChanged()
@@ -368,8 +373,10 @@ open class StickerViewModel :
 
     /** Replaces the board, e.g. after loading a file. */
     fun loadBoard(board: StickerViewSerializer.Board) {
-        removeAllStickers()
+        clearBoard()
         items.addAll(board.stickers)
+        // Undo history is gone, so only images on the new board are still needed.
+        ImageCache.retain(items.filterIsInstance<DrawableSticker>().mapTo(HashSet()) { it.blobKey })
         canvasMatrix.value!!.setMatrix(board.canvasMatrix)
         canvasMatrix.value!!.notifyChange()
         updateCanvasMatrix()
@@ -1380,9 +1387,9 @@ open class StickerViewModel :
         change { chosen.forEach { it.groupId = 0L } }
     }
 
-    fun cropDestructively(resources: android.content.res.Resources, all: Boolean) {
+    fun cropDestructively(all: Boolean) {
         val chosen = (if (all) ArrayList(items) else selected()).filterIsInstance<DrawableSticker>()
-        change { chosen.forEach { it.cropDestructively(resources) } }
+        change { chosen.forEach { it.cropDestructively() } }
     }
 
     // endregion

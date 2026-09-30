@@ -62,6 +62,12 @@ public class StickerView extends FrameLayout {
 
     private final RectF stickerRect = new RectF();
 
+    // Fraction of the view beyond each edge whose images are loaded ahead.
+    private static final float PREFETCH_MARGIN = 0.5f;
+    private final RectF cullBound = new RectF();
+    private final RectF cullScreen = new RectF();
+    private final Runnable redraw = this::postInvalidateOnAnimation;
+
     private final Matrix sizeMatrix = new Matrix();
 
     private final ObservableMatrix canvasMatrix = new ObservableMatrix();
@@ -261,13 +267,39 @@ public class StickerView extends FrameLayout {
         }
     }
 
+    /**
+     * Draws the items that are on screen. Images just outside it get their
+     * pixels loaded too, so panning doesn't reveal blurry ones.
+     */
     protected void drawStickers(Canvas canvas) {
+        float marginX = getWidth() * PREFETCH_MARGIN;
+        float marginY = getHeight() * PREFETCH_MARGIN;
         for (int i = 0; i < stickers.size(); i++) {
             Sticker sticker = stickers.get(i);
-            if (sticker != null && sticker.isVisible()) {
+            if (sticker == null || !sticker.isVisible()) {
+                continue;
+            }
+            sticker.getBound(cullBound);
+            sticker.getMappedBound(cullScreen, cullBound);
+            if (cullScreen.intersects(0, 0, getWidth(), getHeight())) {
                 sticker.draw(canvas);
+            } else if (sticker instanceof DrawableSticker
+                    && cullScreen.intersects(-marginX, -marginY, getWidth() + marginX, getHeight() + marginY)) {
+                ((DrawableSticker) sticker).prefetch();
             }
         }
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        ImageCache.INSTANCE.addListener(redraw);
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        ImageCache.INSTANCE.removeListener(redraw);
+        super.onDetachedFromWindow();
     }
 
     /** Corner handles of the single selected item. */

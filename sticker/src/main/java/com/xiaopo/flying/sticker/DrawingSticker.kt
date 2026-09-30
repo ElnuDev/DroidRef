@@ -9,8 +9,6 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
-import android.graphics.drawable.ColorDrawable
-import android.graphics.drawable.Drawable
 import kotlin.math.ceil
 
 /**
@@ -80,10 +78,6 @@ class DrawingSticker private constructor(
     override fun getHeight() = boxHeight
 
     override fun isCroppable() = false
-
-    override fun setDrawable(drawable: Drawable): Sticker = this
-
-    override fun getDrawable(): Drawable = ColorDrawable(color)
 
     override fun setAlpha(alpha: Int): Sticker {
         opacity = alpha

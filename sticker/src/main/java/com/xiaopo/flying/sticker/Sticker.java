@@ -1,7 +1,6 @@
 package com.xiaopo.flying.sticker;
 
 import android.graphics.*;
-import android.graphics.drawable.Drawable;
 
 import androidx.annotation.IntDef;
 import androidx.annotation.IntRange;
@@ -298,11 +297,6 @@ public abstract class Sticker {
     public abstract int getWidth();
 
     public abstract int getHeight();
-
-    public abstract Sticker setDrawable(@NonNull Drawable drawable);
-
-    @NonNull
-    public abstract Drawable getDrawable();
 
     @NonNull
     public abstract Sticker setAlpha(@IntRange(from = 0, to = 255) int alpha);

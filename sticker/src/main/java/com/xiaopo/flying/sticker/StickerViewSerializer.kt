@@ -1,9 +1,6 @@
 package com.xiaopo.flying.sticker
 
-import android.content.res.Resources
 import android.graphics.*
-import android.graphics.drawable.BitmapDrawable
-import android.graphics.drawable.Drawable
 import org.msgpack.core.MessagePack
 import org.msgpack.core.MessagePacker
 import org.msgpack.core.MessageUnpacker
@@ -138,18 +135,18 @@ class StickerViewSerializer {
     }
 
     /**
-     * Reads a board, decoding its images. Call off the main thread.
+     * Reads a board, preparing its images in [ImageCache]. Call off the main thread.
      */
-    fun read(input: InputStream, resources: Resources): Board =
+    fun read(input: InputStream): Board =
         MessagePack.newDefaultUnpacker(BufferedInputStream(input)).use { u ->
             when (val version = u.unpackInt()) {
-                1 -> readV1(u, resources)
-                2 -> readV2(u, resources)
+                1 -> readV1(u)
+                2 -> readV2(u)
                 else -> throw IOException("Unsupported board version $version")
             }
         }
 
-    private fun readV1(u: MessageUnpacker, resources: Resources): Board {
+    private fun readV1(u: MessageUnpacker): Board {
         u.unpackLong() // date
         val canvasMatrix = u.unpackMatrix()
         val stickers = ArrayList<Sticker>()
@@ -157,16 +154,15 @@ class StickerViewSerializer {
             u.unpackString() // sha of the PNG data, recomputed by BlobStore
             val bytes = u.readPayload(u.unpackBinaryHeader())
             val key = BlobStore.put(bytes)
-            val bitmap = ImageLoader.decode(bytes)
+            val isImage = ImageCache.prepare(key, bytes) != null
             repeat(u.unpackArrayHeader()) {
                 val bounds = u.unpackRect()
                 val matrix = u.unpackMatrix()
                 val cropBounds = u.unpackRectF()
                 val flipHorizontal = u.unpackBoolean()
                 val flipVertical = u.unpackBoolean()
-                if (bitmap != null) {
-                    val sticker = DrawableSticker(BitmapDrawable(resources, bitmap), key)
-                    sticker.realBounds = bounds
+                if (isImage) {
+                    val sticker = DrawableSticker(key, bounds.width(), bounds.height())
                     sticker.croppedBounds = cropBounds
                     sticker.setMatrix(matrix)
                     sticker.isFlippedHorizontally = flipHorizontal
@@ -178,22 +174,22 @@ class StickerViewSerializer {
         return Board(canvasMatrix, stickers)
     }
 
-    private fun readV2(u: MessageUnpacker, resources: Resources): Board {
+    /** A blob as stored now, and the size to place it at when an item doesn't say. */
+    private class Image(val key: String, val size: Pair<Int, Int>)
+
+    private fun readV2(u: MessageUnpacker): Board {
         u.unpackLong() // date
         val canvasMatrix = u.unpackMatrix()
-        val bitmaps = HashMap<String, Bitmap?>()
+        val images = HashMap<String, Image?>()
         repeat(u.unpackArrayHeader()) {
             val savedKey = u.unpackString()
             val bytes = u.readPayload(u.unpackBinaryHeader())
             val key = BlobStore.put(bytes)
-            bitmaps[savedKey] = ImageLoader.decode(bytes)
-            if (key != savedKey) {
-                bitmaps[key] = bitmaps[savedKey]
-            }
+            images[savedKey] = ImageCache.prepare(key, bytes)?.let { Image(key, it) }
         }
         val stickers = ArrayList<Sticker>()
         repeat(u.unpackArrayHeader()) {
-            readItem(u, resources, bitmaps)?.let(stickers::add)
+            readItem(u, images)?.let(stickers::add)
         }
         return Board(canvasMatrix, stickers)
     }
@@ -203,11 +199,7 @@ class StickerViewSerializer {
         return FloatArray(n) { unpackFloat() }
     }
 
-    private fun readItem(
-        u: MessageUnpacker,
-        resources: Resources,
-        bitmaps: Map<String, Bitmap?>
-    ): Sticker? {
+    private fun readItem(u: MessageUnpacker, images: Map<String, Image?>): Sticker? {
         var type = ""
         var blob: String? = null
         var bounds: Rect? = null
@@ -263,10 +255,10 @@ class StickerViewSerializer {
 
         val sticker: Sticker = when (type) {
             "image" -> {
-                val key = blob ?: return null
-                val bitmap = bitmaps[key] ?: return null
-                DrawableSticker(BitmapDrawable(resources, bitmap), key).also { s ->
-                    bounds?.let { s.realBounds = it }
+                val image = images[blob ?: return null] ?: return null
+                val width = bounds?.width() ?: image.size.first
+                val height = bounds?.height() ?: image.size.second
+                DrawableSticker(image.key, width, height).also { s ->
                     crop?.let { s.croppedBounds = it }
                 }
             }
@@ -293,31 +285,5 @@ class StickerViewSerializer {
 
     companion object {
         const val SERIAL_VERSION = 2
-
-        fun drawableToBitmap(drawable: Drawable): Bitmap {
-            if (drawable is BitmapDrawable) {
-                val bitmapDrawable = drawable
-                if (bitmapDrawable.bitmap != null) {
-                    return bitmapDrawable.bitmap
-                }
-            }
-            var bitmap: Bitmap = if (drawable.intrinsicWidth <= 0 || drawable.intrinsicHeight <= 0) {
-                Bitmap.createBitmap(
-                    1,
-                    1,
-                    Bitmap.Config.ARGB_8888
-                ) // Single color bitmap will be created of 1x1 pixel
-            } else {
-                Bitmap.createBitmap(
-                    drawable.intrinsicWidth,
-                    drawable.intrinsicHeight,
-                    Bitmap.Config.ARGB_8888
-                )
-            }
-            val canvas = Canvas(bitmap)
-            drawable.setBounds(0, 0, canvas.width, canvas.height)
-            drawable.draw(canvas)
-            return bitmap
-        }
     }
 }
