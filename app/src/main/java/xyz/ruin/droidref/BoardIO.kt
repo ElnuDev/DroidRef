@@ -71,7 +71,37 @@ class BoardIO(private val context: Context) {
         }
     }
 
-    /** Images directly inside a folder picked with OpenDocumentTree, sorted by name. */
+    fun isPdf(uri: Uri): Boolean =
+        resolver.getType(uri) == PDF_TYPE || displayName(uri)?.endsWith(".pdf", ignoreCase = true) == true
+
+    /** Copies a PDF somewhere PdfRenderer can seek in; close the result to delete the copy. */
+    fun openPdf(uri: Uri): PdfImport {
+        val dir = File(context.cacheDir, PDF_DIR)
+        dir.mkdirs()
+        val file = File.createTempFile("import", ".pdf", dir)
+        try {
+            (resolver.openInputStream(uri) ?: throw IOException("Could not open $uri")).use { input ->
+                file.outputStream().use { input.copyTo(it) }
+            }
+            return PdfImport(file)
+        } catch (e: Exception) {
+            file.delete()
+            throw e
+        }
+    }
+
+    /** Removes copies left behind by imports that never finished. */
+    fun deletePdfCopies() {
+        File(context.cacheDir, PDF_DIR).listFiles()?.forEach { it.delete() }
+    }
+
+    /** Page [index] of [pdf] as an item named "<title> p<number>". */
+    fun pdfPage(pdf: PdfImport, index: Int, title: String?): Sticker? {
+        val number = (index + 1).toString().padStart(pdf.pageCount.toString().length, '0')
+        return imageFromBytes(pdf.page(index), "${title ?: "page"} p$number")
+    }
+
+    /** Images and PDFs directly inside a folder picked with OpenDocumentTree, sorted by name. */
     fun imagesInTree(tree: Uri): List<Uri> {
         val children = DocumentsContract.buildChildDocumentsUriUsingTree(
             tree, DocumentsContract.getTreeDocumentId(tree)
@@ -88,7 +118,7 @@ class BoardIO(private val context: Context) {
         )?.use { cursor ->
             while (cursor.moveToNext()) {
                 val mime = cursor.getString(2) ?: continue
-                if (mime.startsWith("image/")) {
+                if (mime.startsWith("image/") || mime == PDF_TYPE) {
                     found.add(cursor.getString(1) to DocumentsContract.buildDocumentUriUsingTree(tree, cursor.getString(0)))
                 }
             }
@@ -269,6 +299,8 @@ class BoardIO(private val context: Context) {
 
     companion object {
         const val EXPORT_FOLDER = "DroidRef"
+        const val PDF_TYPE = "application/pdf"
+        private const val PDF_DIR = "pdf-import"
         private const val MAX_EXPORT_PIXELS = 36_000_000f
         private const val MAX_EXPORT_SIDE = 12_000f
         private const val USER_AGENT = "Mozilla/5.0 (Android) DroidRef"

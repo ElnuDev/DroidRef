@@ -132,6 +132,7 @@ open class StickerViewModel :
         private set
     private val pendingPlacement = ArrayList<Sticker>()
     private var pendingArrange = false
+    private var pendingInOrder = false
 
     // Overlay state drawn by StickerView.
     /** Rubber-band selection rectangle, in screen coordinates. */
@@ -236,7 +237,7 @@ open class StickerViewModel :
         if (width > 0 && height > 0 && pendingPlacement.isNotEmpty()) {
             val pending = ArrayList(pendingPlacement)
             pendingPlacement.clear()
-            place(pending, pendingArrange)
+            place(pending, pendingArrange, pendingInOrder)
             invalidate()
         }
     }
@@ -257,7 +258,12 @@ open class StickerViewModel :
      * Adds items to the board around the middle of the screen, arranging a batch
      * so that dozens of images don't end up in a pile.
      */
-    fun addStickers(added: List<Sticker>, arrange: Boolean = autoArrange.value == true) {
+    /**
+     * Adds items around the middle of the screen. With [arrange] they're laid
+     * out side by side: in reading order if [inOrder] (pages of a document),
+     * otherwise packed as tightly as possible.
+     */
+    fun addStickers(added: List<Sticker>, arrange: Boolean = autoArrange.value == true, inOrder: Boolean = false) {
         if (added.isEmpty()) return
         history.record(items) {
             added.forEach {
@@ -267,20 +273,25 @@ open class StickerViewModel :
             if (viewWidth == 0 || viewHeight == 0) {
                 pendingPlacement.addAll(added)
                 pendingArrange = arrange
+                pendingInOrder = inOrder
             } else {
-                place(added, arrange)
+                place(added, arrange, inOrder)
             }
         }
         setSelection(added)
     }
 
-    private fun place(added: List<Sticker>, arrange: Boolean) {
+    private fun place(added: List<Sticker>, arrange: Boolean, inOrder: Boolean) {
         val center = screenToWorld(viewWidth / 2f, viewHeight / 2f)
         if (arrange && added.size > 1) {
             val bounds = added.map { it.worldBounds }
             val gap = gapFor(bounds)
             val boxes = bounds.map { Arranger.Box(it.width(), it.height()) }
-            val positions = Arranger.optimal(boxes, gap, viewAspect())
+            val positions = if (inOrder) {
+                Arranger.rows(boxes, gap, viewAspect())
+            } else {
+                Arranger.optimal(boxes, gap, viewAspect())
+            }
             val extent = Arranger.extent(boxes, positions)
             var originX = center.x - extent.w / 2
             var originY = center.y - extent.h / 2

@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -68,7 +69,10 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
     private lateinit var io: BoardIO
     private val prefs by lazy { getSharedPreferences(PREFS, MODE_PRIVATE) }
 
-    private val pickImages = registerForActivityResult(ActivityResultContracts.GetMultipleContents()) {
+    private val pickImages = registerForActivityResult(object : ActivityResultContracts.GetMultipleContents() {
+        override fun createIntent(context: Context, input: String) =
+            super.createIntent(context, "*/*").putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", BoardIO.PDF_TYPE))
+    }) {
         importUris(it)
     }
     private val pickFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { tree ->
@@ -134,6 +138,7 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
         if (!stickerViewModel.sessionStarted) {
             // Fresh process: bring back the board from last time.
             stickerViewModel.sessionStarted = true
+            io.deletePdfCopies()
             restoreAutosave {
                 if (savedInstanceState == null) {
                     handleIntent(intent)
@@ -157,7 +162,7 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
     private fun handleIntent(intent: Intent?) {
         when (intent?.action) {
             Intent.ACTION_SEND -> {
-                if (intent.type?.startsWith("image/") == true) {
+                if (intent.type?.startsWith("image/") == true || intent.type == BoardIO.PDF_TYPE) {
                     @Suppress("DEPRECATION")
                     (intent.getParcelableExtra<Parcelable>(Intent.EXTRA_STREAM) as? Uri)?.let {
                         importUris(listOf(it))
@@ -230,18 +235,37 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
 
     private fun importUris(uris: List<Uri>) {
         if (uris.isEmpty()) return
-        val total = uris.size
         lifecycleScope.launch {
-            showProgress("Importing 0 / $total")
-            val done = AtomicInteger()
-            val decoders = Dispatchers.IO.limitedParallelism(4)
+            showProgress("Importing…")
+            val pdfs = ArrayList<PdfImport>()
+            var unopened = 0
             val results = try {
-                uris.map { uri ->
+                // Each image and each PDF page is one job, in order, so pages
+                // come out in page order.
+                val jobs: List<() -> Sticker?> = withContext(Dispatchers.IO) {
+                    uris.flatMap { uri ->
+                        if (!io.isPdf(uri)) return@flatMap listOf({ io.loadImage(uri) })
+                        val pdf = try {
+                            io.openPdf(uri).also(pdfs::add)
+                        } catch (e: Exception) {
+                            Timber.e(e, "Could not open PDF %s", uri)
+                            unopened++
+                            return@flatMap emptyList()
+                        }
+                        val title = io.displayName(uri)?.substringBeforeLast('.')
+                        List(pdf.pageCount) { i -> { io.pdfPage(pdf, i, title) } }
+                    }
+                }
+                val total = jobs.size
+                binding.progressText.text = "Importing 0 / $total"
+                val done = AtomicInteger()
+                val decoders = Dispatchers.IO.limitedParallelism(4)
+                jobs.map { job ->
                     async(decoders) {
                         val sticker = try {
-                            io.loadImage(uri)
+                            job()
                         } catch (e: Exception) {
-                            Timber.e(e, "Could not import %s", uri)
+                            Timber.e(e, "Could not import")
                             null
                         }
                         val n = done.incrementAndGet()
@@ -250,21 +274,24 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
                     }
                 }.awaitAll()
             } finally {
+                pdfs.forEach { it.close() }
                 hideProgress()
             }
             val stickers = results.filterNotNull()
-            stickerViewModel.addStickers(stickers)
-            val failed = total - stickers.size
+            // Keep documents in reading order; loose images are packed tightly.
+            stickerViewModel.addStickers(stickers, inOrder = pdfs.isNotEmpty())
+            val failed = results.size - stickers.size
             when {
-                failed > 0 -> toast("$failed of $total files could not be opened as images")
-                total > 1 -> toast("Added $total images")
+                unopened > 0 -> toast(if (unopened == 1) "Could not open the PDF" else "Could not open $unopened PDFs")
+                failed > 0 -> toast("$failed of ${results.size} could not be imported")
+                stickers.size > 1 -> toast("Added ${stickers.size} images")
             }
         }
     }
 
     private fun importFolder(tree: Uri) {
         runBusy("Scanning folder…", { io.imagesInTree(tree) }) { uris ->
-            if (uris.isEmpty()) toast("No images found in folder.") else importUris(uris)
+            if (uris.isEmpty()) toast("No images or PDFs found in folder.") else importUris(uris)
         }
     }
 
@@ -536,7 +563,7 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
         binding.buttonRedo.setOnClickListener { vm.redo() }
         binding.buttonMenu.setOnClickListener { showMenu() }
 
-        binding.buttonAdd.setOnClickListener { pickImages.launch("image/*") }
+        binding.buttonAdd.setOnClickListener { pickImages.launch("") }
         binding.buttonPaste.setOnClickListener { paste() }
         binding.buttonNote.setOnClickListener { addNote() }
         binding.buttonDraw.setOnClickListener {
@@ -681,7 +708,7 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
     private fun onMenuItem(item: MenuItem): Boolean {
         val vm = stickerViewModel
         when (item.itemId) {
-            R.id.action_add_images -> pickImages.launch("image/*")
+            R.id.action_add_images -> pickImages.launch("")
             R.id.action_add_folder -> pickFolder.launch(null)
             R.id.action_add_link -> Dialogs.text(this, "Image from link", null, "https://…") { handleText(it) }
             R.id.action_paste -> paste()
@@ -893,6 +920,7 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
                 Toolbar
                 • Long-press any button to see what it does; the ? in the corner shows or hides the labels.
                 • Add picks several images at once; they are arranged automatically.
+                • Add also takes PDFs: each page becomes an image, laid out in page order.
                 • Arrange, Delete, Duplicate, Uncrop and Reset size act on the selection.
                 • Select, Draw, Color, Crop, Rotate and Lock are switches: highlighted means on.
 

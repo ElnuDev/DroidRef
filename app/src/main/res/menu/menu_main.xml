@@ -2,8 +2,8 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:title="Add">
         <menu>
-            <item android:id="@+id/action_add_images" android:title="Images…" />
-            <item android:id="@+id/action_add_folder" android:title="Folder of images…" />
+            <item android:id="@+id/action_add_images" android:title="Images or PDFs…" />
+            <item android:id="@+id/action_add_folder" android:title="Folder of images or PDFs…" />
             <item android:id="@+id/action_add_link" android:title="Image from link…" />
             <item android:id="@+id/action_paste" android:title="Paste" />
             <item android:id="@+id/action_add_note" android:title="Note…" />
