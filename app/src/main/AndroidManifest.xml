@@ -7,6 +7,8 @@
         android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- usesCleartextTraffic: plain http is needed for the hydrus Client API (http
+         by default, and normally reached over a LAN or tailnet) and for image links. -->
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -14,7 +16,8 @@
         android:largeHeap="true"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.DroidRef.KritaDark">
+        android:theme="@style/Theme.DroidRef.KritaDark"
+        android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"

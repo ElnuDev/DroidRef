@@ -25,7 +25,7 @@ object Dialogs {
         0xFF8E24AA.toInt(),
     )
 
-    private fun Context.dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+    fun Context.dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
     fun Context.themeColor(attr: Int): Int {
         val value = TypedValue()
@@ -33,13 +33,13 @@ object Dialogs {
         return value.data
     }
 
-    private fun column(context: Context) = LinearLayout(context).apply {
+    fun column(context: Context) = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
         val pad = context.dp(20)
         setPadding(pad, context.dp(8), pad, 0)
     }
 
-    private fun label(context: Context, text: String) = TextView(context).apply {
+    fun label(context: Context, text: String) = TextView(context).apply {
         this.text = text
         setPadding(0, context.dp(12), 0, context.dp(4))
     }

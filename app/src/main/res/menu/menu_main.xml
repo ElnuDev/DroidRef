@@ -4,6 +4,7 @@
         <menu>
             <item android:id="@+id/action_add_images" android:title="Images or PDFs…" />
             <item android:id="@+id/action_add_folder" android:title="Folder of images or PDFs…" />
+            <item android:id="@+id/action_add_hydrus" android:title="From Hydrus…" />
             <item android:id="@+id/action_add_link" android:title="Image from link…" />
             <item android:id="@+id/action_paste" android:title="Paste" />
             <item android:id="@+id/action_add_note" android:title="Note…" />

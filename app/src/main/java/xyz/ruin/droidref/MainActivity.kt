@@ -51,6 +51,7 @@ import com.xiaopo.flying.sticker.iconEvents.ZoomIconEvent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import timber.log.Timber
@@ -256,36 +257,77 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
                         List(pdf.pageCount) { i -> { io.pdfPage(pdf, i, title) } }
                     }
                 }
-                val total = jobs.size
-                binding.progressText.text = "Importing 0 / $total"
-                val done = AtomicInteger()
-                val decoders = Dispatchers.IO.limitedParallelism(4)
-                jobs.map { job ->
-                    async(decoders) {
-                        val sticker = try {
-                            job()
-                        } catch (e: Exception) {
-                            Timber.e(e, "Could not import")
-                            null
-                        }
-                        val n = done.incrementAndGet()
-                        withContext(Dispatchers.Main) { binding.progressText.text = "Importing $n / $total" }
-                        sticker
-                    }
-                }.awaitAll()
+                runImportJobs(jobs)
             } finally {
                 pdfs.forEach { it.close() }
                 hideProgress()
             }
-            val stickers = results.filterNotNull()
-            // Keep documents in reading order; loose images are packed tightly.
-            stickerViewModel.addStickers(stickers, inOrder = pdfs.isNotEmpty())
-            val failed = results.size - stickers.size
-            when {
-                unopened > 0 -> toast(if (unopened == 1) "Could not open the PDF" else "Could not open $unopened PDFs")
-                failed > 0 -> toast("$failed of ${results.size} could not be imported")
-                stickers.size > 1 -> toast("Added ${stickers.size} images")
+            val problem = when (unopened) {
+                0 -> null
+                1 -> "Could not open the PDF"
+                else -> "Could not open $unopened PDFs"
             }
+            // Keep documents in reading order; loose images are packed tightly.
+            addImported(results, inOrder = pdfs.isNotEmpty(), problem)
+        }
+    }
+
+    private fun importHydrus(client: HydrusClient, ids: List<Int>) {
+        if (ids.isEmpty()) return
+        lifecycleScope.launch {
+            showProgress("Importing…")
+            val results = try {
+                // Named by hash, which is what finds the file again in hydrus.
+                val hashes = try {
+                    withContext(Dispatchers.IO) { client.hashes(ids) }
+                } catch (e: Exception) {
+                    Timber.e(e, "Could not look up hydrus hashes")
+                    emptyMap()
+                }
+                runImportJobs(ids.map { id ->
+                    {
+                        val name = hashes[id]?.take(12) ?: "hydrus $id"
+                        io.imageFromBytes(client.file(id), name)
+                            ?: io.imageFromBytes(client.rendered(id), name)
+                    }
+                })
+            } finally {
+                hideProgress()
+            }
+            addImported(results, inOrder = false)
+        }
+    }
+
+    /** Runs import [jobs] a few at a time, counting them off on the progress overlay. */
+    private suspend fun runImportJobs(jobs: List<() -> Sticker?>): List<Sticker?> = coroutineScope {
+        val total = jobs.size
+        binding.progressText.text = "Importing 0 / $total"
+        val done = AtomicInteger()
+        val decoders = Dispatchers.IO.limitedParallelism(4)
+        jobs.map { job ->
+            async(decoders) {
+                val sticker = try {
+                    job()
+                } catch (e: Exception) {
+                    Timber.e(e, "Could not import")
+                    null
+                }
+                val n = done.incrementAndGet()
+                withContext(Dispatchers.Main) { binding.progressText.text = "Importing $n / $total" }
+                sticker
+            }
+        }.awaitAll()
+    }
+
+    /** Adds what [runImportJobs] produced and says how it went; [problem] takes precedence. */
+    private fun addImported(results: List<Sticker?>, inOrder: Boolean, problem: String? = null) {
+        val stickers = results.filterNotNull()
+        stickerViewModel.addStickers(stickers, inOrder = inOrder)
+        val failed = results.size - stickers.size
+        when {
+            problem != null -> toast(problem)
+            failed > 0 -> toast("$failed of ${results.size} could not be imported")
+            stickers.size > 1 -> toast("Added ${stickers.size} images")
         }
     }
 
@@ -710,6 +752,7 @@ class MainActivity : AppCompatActivity(), StickerViewModel.BoardListener {
         when (item.itemId) {
             R.id.action_add_images -> pickImages.launch("")
             R.id.action_add_folder -> pickFolder.launch(null)
+            R.id.action_add_hydrus -> HydrusDialog.show(this, prefs, ::importHydrus)
             R.id.action_add_link -> Dialogs.text(this, "Image from link", null, "https://…") { handleText(it) }
             R.id.action_paste -> paste()
             R.id.action_add_note -> addNote()
