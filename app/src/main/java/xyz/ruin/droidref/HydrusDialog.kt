@@ -136,7 +136,25 @@ object HydrusDialog {
             setSelection(text.length)
         }
         val blacklist = Blacklist(context, prefs, client) { runSearch() }
-        val status = TextView(context).apply { setPadding(0, context.dp(8), 0, context.dp(8)) }
+        val status = TextView(context).apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        // Shuffle deals a fresh order on every press; Newest puts it back.
+        fun orderButton(label: String) = Button(context, null, android.R.attr.borderlessButtonStyle).apply {
+            text = label
+            // Borderless buttons are wide by default, which squeezes the status on a phone.
+            minWidth = 0
+            minimumWidth = 0
+            setPadding(context.dp(8), paddingTop, context.dp(8), paddingBottom)
+        }
+        val shuffle = orderButton("Shuffle")
+        val newest = orderButton("Newest")
+        val statusRow = LinearLayout(context).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(status)
+            addView(shuffle)
+            addView(newest)
+        }
         val grid = GridView(context).apply {
             columnWidth = context.dp(96)
             numColumns = GridView.AUTO_FIT
@@ -151,7 +169,7 @@ object HydrusDialog {
         val layout = column(context).apply {
             addView(query)
             addView(blacklist.view)
-            addView(status)
+            addView(statusRow)
             addView(grid)
             layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -170,7 +188,7 @@ object HydrusDialog {
             .show()
         val add = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
 
-        // In result order, newest first.
+        // In the order shown.
         fun checked(): List<Int> {
             val picked = grid.checkedItemIds.toHashSet()
             return thumbs.ids.filter { it.toLong() in picked }
@@ -182,6 +200,18 @@ object HydrusDialog {
             add.text = if (n > 0) "Add $n" else "Add"
         }
 
+        // The search's own order, newest import first; shown as is unless shuffled.
+        var found: List<Int> = emptyList()
+        var shuffled = false
+
+        fun showOrder() {
+            // Ids are stable, so picks survive the reorder.
+            thumbs.show(if (shuffled) found.shuffled() else found)
+            grid.setSelection(0)
+            shuffle.isEnabled = found.size > 1
+            newest.isEnabled = shuffled && found.size > 1
+        }
+
         var running: Job? = null
         runSearch = {
             val text = query.text.toString()
@@ -191,7 +221,8 @@ object HydrusDialog {
             val excluded = blacklist.active().map { "-$it" }
             running?.cancel()
             grid.clearChoices()
-            thumbs.show(emptyList())
+            found = emptyList()
+            showOrder()
             updateAdd()
             status.text = "Searching…"
             running = scope.launch {
@@ -200,14 +231,15 @@ object HydrusDialog {
                     // Searching again without the blacklist is the only way to know what it hid.
                     val all = if (excluded.isEmpty()) null else async(Dispatchers.IO) { client.search(typed).size }
                     val ids = shown.await()
-                    thumbs.show(ids)
-                    val found = when (ids.size) {
+                    found = ids
+                    showOrder()
+                    val count = when (ids.size) {
                         0 -> "No images"
                         1 -> "1 image"
                         else -> "${ids.size} images"
                     }
                     val hidden = all?.await()?.minus(ids.size) ?: 0
-                    status.text = if (hidden > 0) "$found ($hidden hidden by blacklist)" else found
+                    status.text = if (hidden > 0) "$count ($hidden hidden by blacklist)" else count
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -231,6 +263,14 @@ object HydrusDialog {
             updateAdd()
         }
         thumbs.isChecked = grid::isItemChecked
+        shuffle.setOnClickListener {
+            shuffled = true
+            showOrder()
+        }
+        newest.setOnClickListener {
+            shuffled = false
+            showOrder()
+        }
         add.setOnClickListener {
             onPicked(client, checked())
             dialog.dismiss()
