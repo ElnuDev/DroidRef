@@ -22,6 +22,8 @@ import android.widget.FrameLayout
 import android.widget.GridView
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ListPopupWindow
+import android.widget.ListView
 import android.widget.MultiAutoCompleteTextView
 import android.widget.ScrollView
 import android.widget.TextView
@@ -51,6 +53,8 @@ object HydrusDialog {
     private const val PREF_BLACKLIST = "hydrusBlacklist"
     // Blacklisted tags whose own checkbox is off; they stay in the list but don't apply.
     private const val PREF_BLACKLIST_OFF = "hydrusBlacklistOff"
+    // Keys of the file domains left out of searches, so new domains start included.
+    private const val PREF_DOMAINS_OFF = "hydrusDomainsOff"
 
     /** Splits a comma-separated tag list; hydrus tags can contain spaces. */
     private fun tags(text: String?) = text.orEmpty().split(',').map { it.trim() }.filter { it.isNotEmpty() }
@@ -135,6 +139,7 @@ object HydrusDialog {
             setAdapter(TagSuggestions(context, client))
             setSelection(text.length)
         }
+        val domains = Domains(context, prefs) { runSearch() }
         val blacklist = Blacklist(context, prefs, client) { runSearch() }
         val status = TextView(context).apply {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
@@ -168,6 +173,7 @@ object HydrusDialog {
         }
         val layout = column(context).apply {
             addView(query)
+            addView(domains.view)
             addView(blacklist.view)
             addView(statusRow)
             addView(grid)
@@ -227,9 +233,10 @@ object HydrusDialog {
             status.text = "Searching…"
             running = scope.launch {
                 try {
-                    val shown = async(Dispatchers.IO) { client.search(typed + excluded) }
+                    val within = domains.active()
+                    val shown = async(Dispatchers.IO) { client.search(typed + excluded, within) }
                     // Searching again without the blacklist is the only way to know what it hid.
-                    val all = if (excluded.isEmpty()) null else async(Dispatchers.IO) { client.search(typed).size }
+                    val all = if (excluded.isEmpty()) null else async(Dispatchers.IO) { client.search(typed, within).size }
                     val ids = shown.await()
                     found = ids
                     showOrder()
@@ -279,7 +286,90 @@ object HydrusDialog {
             dialog.dismiss()
             settings(context, prefs) { show(context, prefs, onPicked) }
         }
-        runSearch()
+        // The first search waits for the domains, so it honours the saved choice.
+        scope.launch {
+            try {
+                domains.show(withContext(Dispatchers.IO) { client.domains() })
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Without the list there's nothing to choose from; search everything.
+                Timber.w(e, "No hydrus file domains")
+            }
+            runSearch()
+        }
+    }
+
+    /**
+     * Which local file domains to search, picked from a dropdown of checkboxes.
+     * Hidden when hydrus has only the one. At least one stays ticked.
+     */
+    private class Domains(
+        private val context: Context,
+        private val prefs: SharedPreferences,
+        private val onChange: () -> Unit,
+    ) {
+        private var all: List<HydrusClient.Domain> = emptyList()
+        private var off = tags(prefs.getString(PREF_DOMAINS_OFF, null)).toSet()
+
+        val view = TextView(context).apply {
+            setPadding(0, context.dp(8), 0, context.dp(8))
+            setTextColor(context.themeColor(R.attr.droidrefPrimary))
+            visibility = View.GONE
+            setOnClickListener { pick() }
+        }
+
+        fun show(domains: List<HydrusClient.Domain>) {
+            all = domains
+            // A domain picked as the only one and since deleted would leave nothing ticked.
+            if (all.all { it.key in off }) off = emptySet()
+            view.visibility = if (all.size > 1) View.VISIBLE else View.GONE
+            update()
+        }
+
+        /** Keys to search, or none to search every domain. */
+        fun active(): List<String> {
+            val on = all.filter { it.key !in off }
+            return if (on.size == all.size) emptyList() else on.map { it.key }
+        }
+
+        private fun update() {
+            val on = all.filter { it.key !in off }
+            val names = if (on.size == all.size) "all domains" else on.joinToString(", ") { it.name }
+            view.text = "Search in: $names ▾"
+        }
+
+        private fun pick() {
+            val popup = ListPopupWindow(context).apply {
+                anchorView = view
+                width = context.dp(240)
+                isModal = true
+                setAdapter(ArrayAdapter(context, android.R.layout.simple_list_item_multiple_choice, all.map { it.name }))
+            }
+            // Has to be set before show(), which hands it to the list it builds.
+            popup.setOnItemClickListener { parent, _, position, _ ->
+                val list = parent as ListView
+                val key = all[position].key
+                val before = off
+                if (key in off) {
+                    off = off - key
+                } else if (all.count { it.key !in off } > 1) {
+                    off = off + key
+                }
+                // The list has already toggled itself; undo that for the last one ticked.
+                list.setItemChecked(position, key !in off)
+                if (off != before) {
+                    prefs.edit().putString(PREF_DOMAINS_OFF, off.joinToString(", ")).apply()
+                    update()
+                    onChange()
+                }
+            }
+            popup.show()
+            // Only exists once shown.
+            val list = popup.listView ?: return
+            list.choiceMode = ListView.CHOICE_MODE_MULTIPLE
+            all.forEachIndexed { i, domain -> list.setItemChecked(i, domain.key !in off) }
+        }
     }
 
     /**

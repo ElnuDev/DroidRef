@@ -18,17 +18,28 @@ import java.net.URLEncoder
 class HydrusClient(host: String, private val key: String) {
     private val base = normalizeHost(host)
 
+    /** A local file domain, what hydrus' GUI calls "my files" and the like. */
+    data class Domain(val name: String, val key: String)
+
     /**
      * IDs of every image matching [tags] (hydrus syntax, "-tag" negates),
-     * newest import first. No tags lists every image.
+     * newest import first. No tags lists every image. Searches only [domains]
+     * if given, and every local domain otherwise.
      */
-    fun search(tags: List<String>): List<Int> {
-        val ids = getJson(
-            "get_files/search_files",
+    fun search(tags: List<String>, domains: List<String> = emptyList()): List<Int> {
+        val params = mutableListOf(
             "tags" to JSONArray(tags + "system:filetype is image").toString(),
             "file_sort_asc" to "false",
-        ).getJSONArray("file_ids")
+        )
+        if (domains.isNotEmpty()) params += "file_service_keys" to JSONArray(domains).toString()
+        val ids = getJson("get_files/search_files", *params.toTypedArray()).getJSONArray("file_ids")
         return List(ids.length()) { ids.getInt(it) }
+    }
+
+    fun domains(): List<Domain> {
+        val services = getJson("get_services").getJSONArray("local_files")
+        return List(services.length()) { services.getJSONObject(it) }
+            .map { Domain(it.getString("name"), it.getString("service_key")) }
     }
 
     /** SHA-256 hashes of [ids], which is how hydrus identifies a file anywhere. */
